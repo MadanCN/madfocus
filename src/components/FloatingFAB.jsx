@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { sb, dbRun } from '../lib/supabase'
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6) }
@@ -11,6 +12,7 @@ const MODES = {
 }
 
 export default function FloatingFAB({ notesOpen, setNotesOpen }) {
+  const navigate                  = useNavigate()
   const [pomOpen, setPomOpen]     = useState(false)
   const [fabOpen, setFabOpen]     = useState(false)
 
@@ -95,7 +97,7 @@ export default function FloatingFAB({ notesOpen, setNotesOpen }) {
   function handleNotes() {
     setFabOpen(false)
     if (pomOpen) setPomOpen(false)
-    setNotesOpen(prev => !prev)
+    navigate('/notes')
   }
 
   function handlePom() {

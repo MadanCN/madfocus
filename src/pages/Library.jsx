@@ -610,8 +610,13 @@ function AddBookModal({ authors, series, onAddAuthor, onAddSeries, onSave, onClo
   async function handleSave() {
     if (!form.title.trim()) return
     setSaving(true)
-    await onSave({ ...form, total_pages:+form.total_pages||0, pages_read:+form.pages_read||0,
-                   series_order:form.series_order?+form.series_order:null, created_at:today() })
+    await onSave({ ...form,
+                   author_id: form.author_id || null,
+                   series_id: form.series_id || null,
+                   total_pages: +form.total_pages||0,
+                   pages_read: +form.pages_read||0,
+                   series_order: form.series_order ? +form.series_order : null,
+                   created_at: today() })
     setSaving(false)
   }
 

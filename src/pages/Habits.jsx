@@ -23,6 +23,7 @@ export default function Habits() {
   const [form, setForm]           = useState(BLANK_HABIT)
   const [variantInput, setVariantInput] = useState('')
   const [confirm, setConfirm]     = useState(null)
+  const [variantPicker, setVariantPicker] = useState(null) // { hid, date, variants }
 
   useEffect(() => {
     Promise.all([
@@ -86,7 +87,10 @@ export default function Habits() {
 
   function getStreak(hid) {
     const s = new Set((logs[hid]||[]).map(e=>e.date))
-    let streak=0; const d=new Date(today())
+    let streak = 0
+    const d = new Date(today())
+    // If today isn't logged yet, start counting from yesterday
+    if (!s.has(d.toISOString().slice(0,10))) d.setDate(d.getDate()-1)
     while (s.has(d.toISOString().slice(0,10))) { streak++; d.setDate(d.getDate()-1) }
     return streak
   }
@@ -154,17 +158,39 @@ export default function Habits() {
                       const done=isDone(h.id,d); const isToday=d===today()
                       const v=getVariant(h.id,d)
                       const label=new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+(v?` · ${v}`:'')
+                      const pickerOpen = variantPicker?.hid===h.id && variantPicker?.date===d
                       return (
                         <div key={d} className="relative group/cell">
                           <button
-                            onClick={()=> isVariant ? null : mark(h.id,d)}
+                            onClick={()=> isVariant
+                              ? setVariantPicker(pickerOpen ? null : {hid:h.id, date:d, variants:h.variants})
+                              : mark(h.id,d)}
                             className={`w-[18px] h-[18px] rounded-[3px] transition-all hover:scale-125
                               ${done ? 'bg-accent' : 'bg-border-light'}
-                              ${isToday ? 'ring-2 ring-accent ring-offset-1' : ''}`}
+                              ${isToday ? 'ring-2 ring-accent ring-offset-1' : ''}
+                              ${pickerOpen ? 'ring-2 ring-warn ring-offset-1' : ''}`}
                           />
                           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-text text-white text-[10px] px-2 py-1 rounded-[4px] whitespace-nowrap opacity-0 group-hover/cell:opacity-100 pointer-events-none z-10 transition-opacity">
                             {label}
                           </div>
+                          {pickerOpen && (
+                            <div className="absolute bottom-7 left-1/2 -translate-x-1/2 z-20 bg-surface border border-border rounded-[8px] shadow-md p-2 flex flex-col gap-1 min-w-[110px]">
+                              <p className="text-[10px] text-muted px-1 pb-1 border-b border-border-light whitespace-nowrap">{label}</p>
+                              {h.variants.map(vv=>(
+                                <button key={vv} onClick={()=>{ mark(h.id,d,vv); setVariantPicker(null) }}
+                                  className={`text-[11px] px-2 py-1 rounded-[5px] text-left transition-colors
+                                    ${v===vv ? 'bg-accent text-white' : 'hover:bg-accent-light hover:text-accent text-muted'}`}>
+                                  {vv}
+                                </button>
+                              ))}
+                              {done && (
+                                <button onClick={()=>{ mark(h.id,d); setVariantPicker(null) }}
+                                  className="text-[11px] px-2 py-1 rounded-[5px] text-left text-danger hover:bg-danger-light transition-colors mt-0.5 border-t border-border-light pt-1">
+                                  Clear
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )
                     })}
