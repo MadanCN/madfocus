@@ -1,0 +1,85 @@
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: #f9f8f6;
+    color: #1a1916;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #e8e5e0; border-radius: 3px; }
+
+  /* Ensure contentEditable always types left-to-right */
+  [contenteditable] {
+    direction: ltr;
+    unicode-bidi: plaintext;
+    text-align: left;
+  }
+}
+
+@layer components {
+  /* ── Buttons ── */
+  .btn {
+    @apply inline-flex items-center gap-1.5 px-4 py-2 rounded-[7px] border-none
+           cursor-pointer font-sans text-[13px] font-medium transition-all duration-150;
+  }
+  .btn-primary  { @apply bg-accent text-white hover:bg-[#234a31]; }
+  .btn-ghost    { @apply bg-transparent border border-border text-muted hover:border-muted hover:text-text; }
+  .btn-danger   { @apply bg-transparent border border-danger text-danger hover:bg-danger hover:text-white; }
+  .btn-sm       { @apply px-2.5 py-1.5 text-xs; }
+  .btn-icon     { @apply w-7 h-7 p-0 justify-center rounded-[6px]; }
+
+  /* ── Form elements ── */
+  .form-input, .form-select, .form-textarea {
+    @apply w-full px-3 py-2 border border-border rounded-[7px]
+           font-sans text-[13.5px] text-text bg-bg outline-none
+           transition-colors duration-150
+           focus:border-accent focus:bg-surface;
+  }
+  .form-textarea { @apply resize-y min-h-[66px]; }
+  .form-label {
+    @apply block text-[11px] font-medium text-muted mb-1
+           uppercase tracking-[.05em];
+  }
+
+  /* ── Cards ── */
+  .card {
+    @apply bg-surface border border-border rounded-card p-4 shadow-card;
+  }
+
+  /* ── Tags ── */
+  .tag       { @apply inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium; }
+  .tag-p1    { @apply bg-danger-light text-danger; }
+  .tag-p2    { @apply bg-warn-light text-warn; }
+  .tag-p3    { @apply bg-accent-light text-accent; }
+  .tag-p4    { @apply bg-border-light text-faint; }
+
+  /* ── Page shell ── */
+  .page-title  { @apply font-serif text-[30px] tracking-tight leading-none; }
+  .page-sub    { @apply text-muted text-[13px] mt-1; }
+  .section-label {
+    @apply text-[10px] font-medium tracking-[.08em] uppercase text-faint px-2.5 mb-1;
+  }
+}
+
+@layer utilities {
+  /* Sidebar transition for mobile */
+  .sidebar-hidden { transform: translateX(-100%); }
+  .sidebar-shown  { transform: translateX(0); }
+}
+
+/* ── FAB animations ── */
+@keyframes fab-pop {
+  from { opacity: 0; transform: translateY(8px) scale(0.9); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.fab-sub-enter {
+  animation: fab-pop 0.15s ease-out forwards;
+}
