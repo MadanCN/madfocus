@@ -2,15 +2,20 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { sb, dbRun } from '../../lib/supabase'
 
 export default function NotesOverlay({ open, onClose, standalone }) {
-  const [notes, setNotes]     = useState([])
-  const [active, setActive]   = useState(null)
-  const [search, setSearch]   = useState('')
-  const [saving, setSaving]   = useState(false)
-  const saveTimer             = useRef(null)
-  const editorRef             = useRef(null)
-  const titleInputRef         = useRef(null)
-  const justCreated           = useRef(false)
-  const lastSavedContent      = useRef({})
+  const [notes, setNotes]         = useState([])
+  const [active, setActive]       = useState(null)
+  const [search, setSearch]       = useState('')
+  const [saving, setSaving]       = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const saveTimer                 = useRef(null)
+  const editorRef                 = useRef(null)
+  const titleInputRef             = useRef(null)
+  const justCreated               = useRef(false)
+  const lastSavedContent          = useRef({})
+  const activeRef                 = useRef(active)
+
+  // Keep activeRef in sync so the debounce timer always has fresh active ID
+  useEffect(() => { activeRef.current = active }, [active])
 
   // In standalone mode (route /notes), always "open"
   const isOpen = standalone || open
@@ -24,17 +29,14 @@ export default function NotesOverlay({ open, onClose, standalone }) {
 
   const activeNote = notes.find(n => n.id === active) || null
 
-  // Sync editor content without causing cursor-jump / RTL bug
-  // The fix: use a ref and only set innerHTML when the active note changes
-  // (not on every keystroke from our own state update)
+  // Sync editor content on note switch — always update innerHTML when the active note changes
   useEffect(() => {
-    if (!editorRef.current || !activeNote) return
-    // Only update DOM if content changed from outside (e.g. note switch)
-    if (lastSavedContent.current[activeNote.id] !== activeNote.content) {
-      editorRef.current.innerHTML = activeNote.content || ''
+    if (!editorRef.current) return
+    editorRef.current.innerHTML = activeNote?.content || ''
+    if (activeNote) {
       lastSavedContent.current[activeNote.id] = activeNote.content || ''
     }
-  }, [activeNote?.id]) // only on note switch, not every content update
+  }, [activeNote?.id]) // only runs on note switch
 
   // Auto-focus title when a new note is created
   useEffect(() => {
@@ -63,44 +65,48 @@ export default function NotesOverlay({ open, onClose, standalone }) {
     await dbRun('Create note', () => sb.from('notes').insert(note))
   }
 
-  // Auto-save on content change (debounced, NO state update that causes re-render)
+  // Auto-save on content change (debounced).
+  // Uses activeRef so this callback never goes stale and doesn't need recreating.
   const handleEditorInput = useCallback(() => {
     const el = editorRef.current
-    if (!el || !active) return
+    if (!el || !activeRef.current) return
     const html = el.innerHTML
-    lastSavedContent.current[active] = html
+    const currentActive = activeRef.current
+    lastSavedContent.current[currentActive] = html
 
-    // Update state quietly (no re-render of editor)
     setNotes(prev => prev.map(n =>
-      n.id === active ? { ...n, content: html, updated_at: new Date().toISOString() } : n
+      n.id === currentActive ? { ...n, content: html, updated_at: new Date().toISOString() } : n
     ))
 
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(async () => {
-      const note = notes.find(n => n.id === active)
-      if (!note) return
+      if (!activeRef.current) return
       setSaving(true)
       try {
         await dbRun('Save note', () =>
-          sb.from('notes').upsert({ ...note, content: html, updated_at: new Date().toISOString() })
+          sb.from('notes')
+            .update({ content: html, updated_at: new Date().toISOString() })
+            .eq('id', currentActive)
         )
       } finally { setSaving(false) }
     }, 800)
-  }, [active, notes])
+  }, []) // stable — reads active via ref, no stale-closure risk
 
   function handleTitleChange(e) {
     const val = e.target.value
+    const currentActive = activeRef.current
     setNotes(prev => prev.map(n =>
-      n.id === active ? { ...n, title: val, updated_at: new Date().toISOString() } : n
+      n.id === currentActive ? { ...n, title: val, updated_at: new Date().toISOString() } : n
     ))
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(async () => {
-      const note = notes.find(n => n.id === active)
-      if (!note) return
+      if (!currentActive) return
       setSaving(true)
       try {
         await dbRun('Save note', () =>
-          sb.from('notes').upsert({ ...note, title: val, updated_at: new Date().toISOString() })
+          sb.from('notes')
+            .update({ title: val, updated_at: new Date().toISOString() })
+            .eq('id', currentActive)
         )
       } finally { setSaving(false) }
     }, 800)
@@ -130,46 +136,57 @@ export default function NotesOverlay({ open, onClose, standalone }) {
       style={{ boxShadow: standalone ? 'none' : undefined }}>
 
       {/* ── Note list sidebar ── */}
-      <div className="w-[240px] min-w-[240px] border-r border-border flex flex-col">
-        <div className="p-4 border-b border-border-light flex items-center justify-between">
-          <h2 className="font-serif text-[18px]">Notes</h2>
-          <button onClick={newNote} className="btn btn-primary btn-sm btn-icon" title="New note">
-            <PlusIcon />
-          </button>
-        </div>
-
-        <div className="px-3 py-2 border-b border-border-light">
-          <input
-            className="form-input text-[12px] py-1.5"
-            placeholder="Search notes…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          {filtered.length === 0 && (
-            <div className="text-center py-10 text-faint text-[13px]">
-              {search ? 'No results' : 'No notes yet'}
+      {sidebarOpen && (
+        <div className="w-[240px] min-w-[240px] border-r border-border flex flex-col">
+          <div className="p-4 border-b border-border-light flex items-center justify-between">
+            <h2 className="font-serif text-[18px]">Notes</h2>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="px-1.5 py-1 text-[14px] rounded-[5px] text-muted hover:bg-border-light hover:text-text transition-colors"
+                title="Collapse sidebar"
+              >
+                ‹
+              </button>
+              <button onClick={newNote} className="btn btn-primary btn-sm btn-icon" title="New note">
+                <PlusIcon />
+              </button>
             </div>
-          )}
-          {filtered.map(note => (
-            <button
-              key={note.id}
-              onClick={() => setActive(note.id)}
-              className={`w-full text-left px-4 py-3 border-b border-border-light transition-colors
-                ${active === note.id ? 'bg-accent-light' : 'hover:bg-bg'}`}
-            >
-              <div className={`text-[13px] font-medium truncate ${active === note.id ? 'text-accent' : 'text-text'}`}>
-                {note.title || 'Untitled'}
+          </div>
+
+          <div className="px-3 py-2 border-b border-border-light">
+            <input
+              className="form-input text-[12px] py-1.5"
+              placeholder="Search notes…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            {filtered.length === 0 && (
+              <div className="text-center py-10 text-faint text-[13px]">
+                {search ? 'No results' : 'No notes yet'}
               </div>
-              <div className="text-[11px] text-faint mt-0.5">
-                {new Date(note.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-              </div>
-            </button>
-          ))}
+            )}
+            {filtered.map(note => (
+              <button
+                key={note.id}
+                onClick={() => setActive(note.id)}
+                className={`w-full text-left px-4 py-3 border-b border-border-light transition-colors
+                  ${active === note.id ? 'bg-accent-light' : 'hover:bg-bg'}`}
+              >
+                <div className={`text-[13px] font-medium truncate ${active === note.id ? 'text-accent' : 'text-text'}`}>
+                  {note.title || 'Untitled'}
+                </div>
+                <div className="text-[11px] text-faint mt-0.5">
+                  {new Date(note.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Editor ── */}
       <div className="flex-1 flex flex-col min-w-0">
@@ -177,6 +194,18 @@ export default function NotesOverlay({ open, onClose, standalone }) {
           <>
             {/* Toolbar */}
             <div className="flex items-center gap-1 px-4 py-2 border-b border-border-light flex-wrap">
+              {!sidebarOpen && (
+                <>
+                  <button
+                    onClick={() => setSidebarOpen(true)}
+                    className="px-1.5 py-1 text-[14px] rounded-[5px] text-muted hover:bg-border-light hover:text-text transition-colors mr-1"
+                    title="Expand sidebar"
+                  >
+                    ›
+                  </button>
+                  <div className="w-px h-4 bg-border mx-1" />
+                </>
+              )}
               <ToolBtn onClick={() => execCmd('bold')}                title="Bold"><b>B</b></ToolBtn>
               <ToolBtn onClick={() => execCmd('italic')}              title="Italic"><i>I</i></ToolBtn>
               <ToolBtn onClick={() => execCmd('underline')}           title="Underline"><u>U</u></ToolBtn>
@@ -218,7 +247,7 @@ export default function NotesOverlay({ open, onClose, standalone }) {
               }}
             />
 
-            {/* Rich text body — FIX: dir="ltr" prevents RTL mirroring */}
+            {/* Rich text body */}
             <div
               ref={editorRef}
               id="note-editor"
@@ -240,6 +269,15 @@ export default function NotesOverlay({ open, onClose, standalone }) {
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-center gap-3">
+            {!sidebarOpen && (
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="absolute left-3 top-3 px-1.5 py-1 text-[14px] rounded-[5px] text-muted hover:bg-border-light hover:text-text transition-colors"
+                title="Expand sidebar"
+              >
+                ›
+              </button>
+            )}
             <div className="text-faint opacity-30">
               <NoteEmptyIcon className="w-12 h-12 mx-auto" />
             </div>
