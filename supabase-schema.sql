@@ -29,11 +29,15 @@ create table public.habits (
 );
 
 create table public.habit_logs (
-  habit_id   text references public.habits(id) on delete cascade,
-  date       text not null,
-  variant    text,
+  habit_id     text references public.habits(id) on delete cascade,
+  date         text not null,
+  variant      text,
+  duration_min int,   -- optional: minutes spent on this habit that day
   primary key (habit_id, date)
 );
+
+-- If the table already exists, run this migration in Supabase SQL Editor:
+-- alter table public.habit_logs add column if not exists duration_min int;
 
 -- ── Goals ──────────────────────────────────────────────────────
 create table public.goals (

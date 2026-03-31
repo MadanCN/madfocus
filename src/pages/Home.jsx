@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { Ring } from '../components/ui'
@@ -10,10 +10,7 @@ function calcHabitStreak(logs) {
   const s = new Set(logs.map(e => e.date))
   let streak = 0
   const d = new Date(today())
-  while (s.has(d.toISOString().slice(0, 10))) {
-    streak++
-    d.setDate(d.getDate() - 1)
-  }
+  while (s.has(d.toISOString().slice(0, 10))) { streak++; d.setDate(d.getDate() - 1) }
   return streak
 }
 
@@ -37,6 +34,28 @@ function getWritingMessage(streak, totalWords) {
   return `${streak} days straight. Unstoppable. This is what serious writers are made of.`
 }
 
+function fmtTime(mins) {
+  if (!mins) return null
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  if (h === 0) return `${m}m`
+  if (m === 0) return `${h}h`
+  return `${h}h ${m}m`
+}
+
+function getMilestoneMsg(name, totalMin) {
+  const h = totalMin / 60
+  if (h >= 1000) return { text: `1,000 hours of ${name}. You are the craft.`, icon: '🌟' }
+  if (h >= 500)  return { text: `500+ hours in ${name}. You're a professional now.`, icon: '🏅' }
+  if (h >= 100)  return { text: `100 hours of ${name}! Elite commitment.`, icon: '🏆' }
+  if (h >= 50)   return { text: `50 hours deep in ${name}. Malcolm Gladwell is watching.`, icon: '👀' }
+  if (h >= 25)   return { text: `25 hours of ${name}! That's real dedication.`, icon: '🔥' }
+  if (h >= 10)   return { text: `10 hours of ${name}. Mastery is being built.`, icon: '💪' }
+  if (h >= 5)    return { text: `5 hours of ${name}. The habit is taking root.`, icon: '🌱' }
+  if (h >= 1)    return { text: `First hour of ${name} logged! The journey begins.`, icon: '✨' }
+  return null
+}
+
 // ── Word Count Bar Chart ──────────────────────────────────────
 function WordChart({ logs, filter }) {
   const data = useMemo(() => {
@@ -48,20 +67,16 @@ function WordChart({ logs, filter }) {
         d.setDate(d.getDate() - (29 - i))
         const ds = d.toISOString().slice(0, 10)
         return {
-          label: (i === 0 || i === 14 || i === 29)
-            ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-            : '',
+          label: (i === 0 || i === 14 || i === 29) ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '',
           fullLabel: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-          value: map[ds] || 0,
-          isToday: ds === today(),
+          value: map[ds] || 0, isToday: ds === today(),
         }
       })
     } else if (filter === 'weekly') {
       const weekMap = {}
       logs.forEach(l => {
         const d = new Date(l.date + 'T12:00:00')
-        const mon = new Date(d)
-        mon.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+        const mon = new Date(d); mon.setDate(d.getDate() - ((d.getDay() + 6) % 7))
         const key = mon.toISOString().slice(0, 10)
         weekMap[key] = (weekMap[key] || 0) + l.word_count
       })
@@ -71,36 +86,27 @@ function WordChart({ logs, filter }) {
         const key = d.toISOString().slice(0, 10)
         const end = new Date(d); end.setDate(end.getDate() + 6)
         return {
-          label: (i === 0 || i === 5 || i === 11)
-            ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-            : '',
+          label: (i === 0 || i === 5 || i === 11) ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '',
           fullLabel: `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${end.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`,
-          value: weekMap[key] || 0,
-          isToday: i === 11,
+          value: weekMap[key] || 0, isToday: i === 11,
         }
       })
     } else {
       const monthMap = {}
-      logs.forEach(l => {
-        const key = l.date.slice(0, 7)
-        monthMap[key] = (monthMap[key] || 0) + l.word_count
-      })
+      logs.forEach(l => { const key = l.date.slice(0, 7); monthMap[key] = (monthMap[key] || 0) + l.word_count })
       return Array.from({ length: 6 }, (_, i) => {
-        const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(1)
-        d.setMonth(d.getMonth() - (5 - i))
+        const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(1); d.setMonth(d.getMonth() - (5 - i))
         const key = d.toISOString().slice(0, 7)
         return {
           label: d.toLocaleDateString('en-GB', { month: 'short' }),
           fullLabel: d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }),
-          value: monthMap[key] || 0,
-          isToday: i === 5,
+          value: monthMap[key] || 0, isToday: i === 5,
         }
       })
     }
   }, [logs, filter])
 
   const max = Math.max(...data.map(d => d.value), 1)
-
   return (
     <div>
       <div className="flex items-end gap-[3px]" style={{ height: '100px' }}>
@@ -109,21 +115,14 @@ function WordChart({ logs, filter }) {
             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-text text-white text-[10px] px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-10 transition-opacity">
               {d.fullLabel}: {d.value.toLocaleString()} words
             </div>
-            <div
-              className="w-full rounded-t-[2px] transition-all duration-300"
-              style={{
-                height: `${Math.max(d.value > 0 ? 4 : 1, Math.round((d.value / max) * 100))}%`,
-                background: d.isToday ? '#b8860b' : d.value > 0 ? '#2d5a3d' : '#f0ede8',
-              }}
-            />
+            <div className="w-full rounded-t-[2px] transition-all duration-300"
+              style={{ height: `${Math.max(d.value > 0 ? 4 : 1, Math.round((d.value / max) * 100))}%`, background: d.isToday ? '#b8860b' : d.value > 0 ? '#2d5a3d' : '#f0ede8' }} />
           </div>
         ))}
       </div>
       <div className="flex gap-[3px] mt-1.5">
         {data.map((d, i) => (
-          <div key={i} className="flex-1 text-[8px] text-faint text-center truncate leading-tight">
-            {d.label}
-          </div>
+          <div key={i} className="flex-1 text-[8px] text-faint text-center truncate leading-tight">{d.label}</div>
         ))}
       </div>
     </div>
@@ -133,29 +132,17 @@ function WordChart({ logs, filter }) {
 // ── Book Reading Calendar ─────────────────────────────────────
 function BookCalendar({ sessions }) {
   const dayMap = {}
-  sessions.forEach(s => {
-    if (!s.date || !s.pages_read) return
-    dayMap[s.date] = (dayMap[s.date] || 0) + s.pages_read
-  })
-
+  sessions.forEach(s => { if (!s.date || !s.pages_read) return; dayMap[s.date] = (dayMap[s.date] || 0) + s.pages_read })
   const days = []
   const end = new Date(today())
   for (let i = 83; i >= 0; i--) {
-    const d = new Date(end)
-    d.setDate(d.getDate() - i)
+    const d = new Date(end); d.setDate(d.getDate() - i)
     const ds = d.toISOString().slice(0, 10)
     days.push({ date: ds, pages: dayMap[ds] || 0, dow: d.getDay() })
   }
-
   const maxPages = Math.max(...days.map(d => d.pages), 1)
-
-  function opacity(pages) {
-    if (!pages) return 0
-    return Math.max(0.15, Math.min(1, pages / maxPages))
-  }
-
-  const weeks = []
-  let week = []
+  function opacity(pages) { if (!pages) return 0; return Math.max(0.15, Math.min(1, pages / maxPages)) }
+  const weeks = []; let week = []
   const firstDow = days[0].dow === 0 ? 6 : days[0].dow - 1
   for (let i = 0; i < firstDow; i++) week.push(null)
   days.forEach(d => {
@@ -164,21 +151,16 @@ function BookCalendar({ sessions }) {
     if (dow === 6) { weeks.push(week); week = [] }
   })
   if (week.length) weeks.push(week)
-
   const monthLabels = []
   weeks.forEach((w, wi) => {
     const firstReal = w.find(Boolean)
     if (firstReal) {
       const d = new Date(firstReal.date + 'T00:00:00')
-      if (d.getDate() <= 7) {
-        monthLabels[wi] = d.toLocaleDateString('en-GB', { month: 'short' })
-      }
+      if (d.getDate() <= 7) monthLabels[wi] = d.toLocaleDateString('en-GB', { month: 'short' })
     }
   })
-
   const totalPages = Object.values(dayMap).reduce((a, b) => a + b, 0)
   const activeDays = Object.keys(dayMap).length
-
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-3">
@@ -188,15 +170,11 @@ function BookCalendar({ sessions }) {
           <span>{activeDays} days active</span>
         </div>
       </div>
-
       <div className="flex gap-[3px] mb-1 ml-[18px]">
         {weeks.map((_, wi) => (
-          <div key={wi} className="w-[11px] text-[9px] text-faint text-center shrink-0">
-            {monthLabels[wi] || ''}
-          </div>
+          <div key={wi} className="w-[11px] text-[9px] text-faint text-center shrink-0">{monthLabels[wi] || ''}</div>
         ))}
       </div>
-
       <div className="flex gap-[3px]">
         <div className="flex flex-col gap-[3px] mr-0.5">
           {['M', '', 'W', '', 'F', '', 'S'].map((d, i) => (
@@ -208,29 +186,131 @@ function BookCalendar({ sessions }) {
             {Array.from({ length: 7 }).map((_, di) => {
               const cell = week[di]
               return (
-                <div
-                  key={di}
-                  title={cell ? `${cell.date}: ${cell.pages} pages` : ''}
+                <div key={di} title={cell ? `${cell.date}: ${cell.pages} pages` : ''}
                   className="w-[11px] h-[11px] rounded-[2px] transition-all"
-                  style={{
-                    background: cell?.pages
-                      ? `rgba(45,90,61,${opacity(cell.pages)})`
-                      : cell === null ? 'transparent' : '#f0ede8',
-                  }}
-                />
+                  style={{ background: cell?.pages ? `rgba(45,90,61,${opacity(cell.pages)})` : cell === null ? 'transparent' : '#f0ede8' }} />
               )
             })}
           </div>
         ))}
       </div>
-
       <div className="flex items-center gap-1.5 mt-2 justify-end">
         <span className="text-[9.5px] text-faint">Less</span>
         {[0.1, 0.3, 0.55, 0.8, 1].map(o => (
-          <div key={o} className="w-[10px] h-[10px] rounded-[2px]"
-            style={{ background: `rgba(45,90,61,${o})` }} />
+          <div key={o} className="w-[10px] h-[10px] rounded-[2px]" style={{ background: `rgba(45,90,61,${o})` }} />
         ))}
         <span className="text-[9.5px] text-faint">More</span>
+      </div>
+    </div>
+  )
+}
+
+// ── AI Coach Section ──────────────────────────────────────────
+const QUICK_QUESTIONS = [
+  "What should I focus on today?",
+  "How are my habits going?",
+  "How's my writing progress?",
+  "Any overdue tasks I should know about?",
+]
+
+function AiCoach({ buildContext }) {
+  const [messages, setMessages] = useState([
+    { role: 'assistant', text: "Hey! I have access to all your tasks, habits, goals, and writing data. Ask me anything — I'll give you a straight answer." }
+  ])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const bottomRef = useRef(null)
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+
+  async function send(question) {
+    const q = (question || input).trim()
+    if (!q || loading) return
+    setMessages(prev => [...prev, { role: 'user', text: q }])
+    setInput('')
+    setLoading(true)
+    try {
+      const res = await fetch('/api/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q, context: buildContext() }),
+      })
+      if (!res.ok) throw new Error('API error')
+      const { reply } = await res.json()
+      setMessages(prev => [...prev, { role: 'assistant', text: reply }])
+    } catch {
+      setMessages(prev => [...prev, { role: 'assistant', text: "Couldn't reach the AI. Check that ANTHROPIC_API_KEY is set in your Vercel env vars." }])
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div className="card mb-5">
+      <div className="flex items-center gap-2.5 mb-4">
+        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#2d5a3d] to-[#2563eb] flex items-center justify-center flex-shrink-0">
+          <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 2a10 10 0 0 1 10 10c0 5.52-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2z"/>
+            <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+            <line x1="9" y1="9" x2="9.01" y2="9"/>
+            <line x1="15" y1="9" x2="15.01" y2="9"/>
+          </svg>
+        </div>
+        <div>
+          <h3 className="font-medium text-[14px]">AI Coach</h3>
+          <p className="text-[11px] text-faint">Knows your tasks, habits, goals & writing</p>
+        </div>
+      </div>
+
+      {/* Message thread */}
+      <div className="flex flex-col gap-3 mb-4 max-h-[280px] overflow-y-auto pr-1">
+        {messages.map((m, i) => (
+          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`px-3.5 py-2.5 rounded-[10px] text-[13px] max-w-[85%] leading-relaxed
+              ${m.role === 'user'
+                ? 'bg-accent text-white rounded-tr-[3px]'
+                : 'bg-border-light text-text rounded-tl-[3px]'}`}>
+              {m.text}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div className="flex justify-start">
+            <div className="bg-border-light px-4 py-2.5 rounded-[10px] rounded-tl-[3px] flex gap-1.5 items-center">
+              {[0, 150, 300].map(d => (
+                <div key={d} className="w-1.5 h-1.5 bg-muted rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />
+              ))}
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Quick questions */}
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {QUICK_QUESTIONS.map(q => (
+          <button key={q} onClick={() => send(q)}
+            className="px-2.5 py-1 rounded-full border border-border text-[11px] text-muted hover:border-accent hover:text-accent hover:bg-accent-light transition-all">
+            {q}
+          </button>
+        ))}
+      </div>
+
+      {/* Input */}
+      <div className="flex gap-2">
+        <input
+          className="form-input flex-1 text-[13px]"
+          placeholder="Ask me anything about your productivity…"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && send()}
+          disabled={loading}
+        />
+        <button onClick={() => send()} disabled={!input.trim() || loading}
+          className="btn btn-primary disabled:opacity-40 disabled:cursor-not-allowed px-4">
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
       </div>
     </div>
   )
@@ -246,13 +326,15 @@ export default function Home() {
   const [writingLogs, setWritingLogs] = useState([])
   const [loading, setLoading] = useState(true)
 
-  // Writing section state
+  // Writing
   const [chartFilter, setChartFilter] = useState('daily')
   const [writingForm, setWritingForm] = useState({ chapters: '', wordCount: '' })
   const [savingWriting, setSavingWriting] = useState(false)
 
-  // Interactive habits: variant picker open for which habit
-  const [dashHabitPicker, setDashHabitPicker] = useState(null) // hid or null
+  // Habits interactive
+  const [dashHabitPicker, setDashHabitPicker] = useState(null) // hid
+  const [showTimeFor, setShowTimeFor] = useState(null) // hid
+  const [timeInput, setTimeInput] = useState('')
 
   useEffect(() => {
     Promise.all([
@@ -271,18 +353,15 @@ export default function Home() {
       const logMap = {}
       ;(hl || []).forEach(l => {
         if (!logMap[l.habit_id]) logMap[l.habit_id] = []
-        logMap[l.habit_id].push(l)
+        logMap[l.habit_id].push(l) // includes duration_min from DB
       })
-      setData({
-        tasks: t || [], habits: h || [], habitLogs: logMap,
-        goals: g || [], sessions: rs || [], books: b || [], pomSessions: ps || [],
-      })
+      setData({ tasks: t || [], habits: h || [], habitLogs: logMap, goals: g || [], sessions: rs || [], books: b || [], pomSessions: ps || [] })
       setWritingLogs(wl || [])
       setLoading(false)
     })
   }, [])
 
-  // ── Mark a habit from Dashboard ──────────────────────────────
+  // ── Mark habit from Dashboard ────────────────────────────────
   async function markHabit(hid, variant) {
     const date = today()
     const entries = data.habitLogs[hid] || []
@@ -295,18 +374,36 @@ export default function Home() {
         await sb.from('habit_logs').delete().eq('habit_id', hid).eq('date', date)
       } else if (variant) {
         newEntries = entries.map((e, i) => i === idx ? { ...e, variant } : e)
-        await sb.from('habit_logs').upsert({ habit_id: hid, date, variant })
+        await sb.from('habit_logs').upsert({ habit_id: hid, date, variant, duration_min: entries[idx]?.duration_min || null })
       } else {
         newEntries = entries.filter((_, i) => i !== idx)
         await sb.from('habit_logs').delete().eq('habit_id', hid).eq('date', date)
       }
     } else {
-      newEntries = [...entries, { date, variant: variant || null }]
-      await sb.from('habit_logs').upsert({ habit_id: hid, date, variant: variant || null })
+      newEntries = [...entries, { habit_id: hid, date, variant: variant || null, duration_min: null }]
+      await sb.from('habit_logs').upsert({ habit_id: hid, date, variant: variant || null, duration_min: null })
     }
 
     setData(prev => ({ ...prev, habitLogs: { ...prev.habitLogs, [hid]: newEntries } }))
     setDashHabitPicker(null)
+  }
+
+  // ── Save time for a habit from Dashboard ─────────────────────
+  async function saveHabitTime(hid) {
+    const mins = parseInt(timeInput)
+    setShowTimeFor(null); setTimeInput('')
+    if (!mins || mins <= 0) return
+    const date = today()
+    const existing = (data.habitLogs[hid] || []).find(e => e.date === date)
+    if (!existing) return
+    await sb.from('habit_logs').upsert({ habit_id: hid, date, variant: existing.variant || null, duration_min: mins })
+    setData(prev => ({
+      ...prev,
+      habitLogs: {
+        ...prev.habitLogs,
+        [hid]: prev.habitLogs[hid].map(e => e.date === date ? { ...e, duration_min: mins } : e),
+      },
+    }))
   }
 
   // ── Save today's writing log ─────────────────────────────────
@@ -317,14 +414,7 @@ export default function Home() {
     setSavingWriting(true)
     const date = today()
     const existing = writingLogs.find(l => l.date === date)
-    const entry = {
-      id: existing?.id || uid(),
-      date,
-      chapters: ch,
-      word_count: wc,
-      created_at: existing?.created_at || date,
-      updated_at: date,
-    }
+    const entry = { id: existing?.id || uid(), date, chapters: ch, word_count: wc, created_at: existing?.created_at || date, updated_at: date }
     await sb.from('writing_logs').upsert(entry)
     setWritingLogs(prev => [entry, ...prev.filter(l => l.date !== date)])
     setWritingForm({ chapters: '', wordCount: '' })
@@ -333,7 +423,7 @@ export default function Home() {
 
   const { tasks, habits, habitLogs, goals, sessions, books, pomSessions } = data
 
-  // ── Computed values ──────────────────────────────────────────
+  // ── Computed ─────────────────────────────────────────────────
   const activeTasks    = tasks.filter(t => !t.done).length
   const dueTodayTasks  = tasks.filter(t => !t.done && t.due === today()).length
   const overdueTasks   = tasks.filter(t => !t.done && t.due && t.due < today()).length
@@ -348,18 +438,52 @@ export default function Home() {
     ? Math.round(goals.reduce((a, g) => a + (g.target > 0 ? (g.current / g.target) * 100 : 0), 0) / goals.length)
     : 0
 
-  // Writing stats
   const totalWords    = writingLogs.reduce((a, l) => a + (l.word_count || 0), 0)
   const totalChapters = writingLogs.reduce((a, l) => a + (l.chapters || 0), 0)
   const writingStreak = calcWritingStreak(writingLogs)
-  const writingDays   = writingLogs.length
   const writingToday  = writingLogs.find(l => l.date === today())
 
+  // Habits with time data (only those with any time logged)
+  const habitsWithTime = habits
+    .map(h => ({
+      ...h,
+      totalMin: (habitLogs[h.id] || []).reduce((a, l) => a + (l.duration_min || 0), 0),
+      todayMin: (habitLogs[h.id] || []).find(l => l.date === today())?.duration_min || 0,
+    }))
+    .filter(h => h.totalMin > 0)
+    .sort((a, b) => b.totalMin - a.totalMin)
+
+  // ── Build AI context ─────────────────────────────────────────
+  function buildContext() {
+    return {
+      date: today(),
+      tasks: {
+        active: activeTasks,
+        dueToday: tasks.filter(t => !t.done && t.due === today()).slice(0, 8).map(t => `${t.title} (${t.priority})`),
+        overdue: tasks.filter(t => !t.done && t.due && t.due < today()).slice(0, 5).map(t => `${t.title} (${t.priority})`),
+      },
+      habits: habits.map(h => ({
+        name: h.name, freq: h.freq,
+        streak: calcHabitStreak(habitLogs[h.id] || []),
+        totalTimeMin: (habitLogs[h.id] || []).reduce((a, l) => a + (l.duration_min || 0), 0),
+        doneToday: (habitLogs[h.id] || []).some(l => l.date === today()),
+        timeTodayMin: (habitLogs[h.id] || []).find(l => l.date === today())?.duration_min || 0,
+      })),
+      goals: goals.map(g => ({
+        title: g.title, current: g.current, target: g.target,
+        pct: g.target > 0 ? Math.round((g.current / g.target) * 100) : 0,
+        horizon: g.horizon,
+      })),
+      writing: { streak: writingStreak, totalWords, totalChapters, todayLog: writingToday || null },
+      focusMinutesToday: todayFocusMins,
+    }
+  }
+
   const CARDS = [
-    { label: 'Active tasks',    value: activeTasks,          sub: `${dueTodayTasks} due today${overdueTasks > 0 ? ` · ${overdueTasks} overdue` : ''}`, link: '/tasks',   color: '#2d5a3d' },
-    { label: 'Focus time today', value: `${todayFocusMins}m`, sub: `${pomSessions.filter(s => s.type === 'focus' && s.completed).length} sessions`,        link: '/',        color: '#b8860b' },
-    { label: 'Habits today',    value: `${habitsToday.length}/${habits.length}`, sub: `Best streak: ${bestStreak.streak}d`,              link: '/habits',  color: '#2563eb' },
-    { label: 'Goals progress',  value: `${avgGoalPct}%`,     sub: `${goals.length} active goals`,                                                          link: '/goals',   color: '#c0392b' },
+    { label: 'Active tasks',     value: activeTasks,                        sub: `${dueTodayTasks} due today${overdueTasks > 0 ? ` · ${overdueTasks} overdue` : ''}`, link: '/tasks',  color: '#2d5a3d' },
+    { label: 'Focus time today', value: `${todayFocusMins}m`,               sub: `${pomSessions.filter(s => s.type === 'focus' && s.completed).length} sessions`,                       link: '/',       color: '#b8860b' },
+    { label: 'Habits today',     value: `${habitsToday.length}/${habits.length}`, sub: `Best streak: ${bestStreak.streak}d`,                                                              link: '/habits', color: '#2563eb' },
+    { label: 'Goals progress',   value: `${avgGoalPct}%`,                   sub: `${goals.length} active goals`,                                                                          link: '/goals',  color: '#c0392b' },
   ]
 
   if (loading) return (
@@ -375,12 +499,10 @@ export default function Home() {
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
   return (
-    <div className="p-6 lg:p-9 max-w-[1200px] pb-24">
+    <div className="p-6 lg:p-9 max-w-[1200px] pb-24" onClick={() => { setDashHabitPicker(null); setShowTimeFor(null) }}>
       {/* Greeting */}
       <div className="mb-7">
-        <h1 className="font-serif text-[28px] lg:text-[32px] leading-tight">
-          {greeting} <span>👋</span>
-        </h1>
+        <h1 className="font-serif text-[28px] lg:text-[32px] leading-tight">{greeting} <span>👋</span></h1>
         <p className="text-muted mt-1 text-[13px]">Here's where things stand today.</p>
       </div>
 
@@ -417,47 +539,43 @@ export default function Home() {
                   </div>
                 ))}
                 {tasks.filter(t => !t.done && t.due === today()).length > 5 && (
-                  <p className="text-[11px] text-muted text-center pt-1">
-                    +{tasks.filter(t => !t.done && t.due === today()).length - 5} more
-                  </p>
+                  <p className="text-[11px] text-muted text-center pt-1">+{tasks.filter(t => !t.done && t.due === today()).length - 5} more</p>
                 )}
               </div>
-            )
-          }
+            )}
         </div>
 
-        {/* Habits today — now interactive */}
-        <div className="card">
+        {/* Habits today — interactive + time tracking */}
+        <div className="card" onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-medium text-[14px]">Habits today</h3>
-              <p className="text-[11px] text-faint mt-0.5">Tap to mark done · click arrow to track all</p>
+              <p className="text-[11px] text-faint mt-0.5">Tap to mark · ⏱ to log time</p>
             </div>
             <button onClick={() => navigate('/habits')} className="text-[12px] text-accent hover:underline flex-shrink-0">Track →</button>
           </div>
           {habits.length === 0
             ? <p className="text-[13px] text-faint py-4 text-center">No habits yet</p>
             : (
-              <div className="flex flex-col gap-1" onClick={() => setDashHabitPicker(null)}>
+              <div className="flex flex-col gap-1">
                 {habits.map(h => {
                   const done      = (habitLogs[h.id] || []).some(l => l.date === today())
                   const streak    = calcHabitStreak(habitLogs[h.id] || [])
                   const isVariant = h.track_type === 'variants'
                   const variant   = (habitLogs[h.id] || []).find(l => l.date === today())?.variant || null
+                  const timeToday = (habitLogs[h.id] || []).find(l => l.date === today())?.duration_min || 0
                   const pickerOpen = dashHabitPicker === h.id
+                  const timeOpen   = showTimeFor === h.id
 
                   return (
-                    <div key={h.id} className="rounded-[8px] transition-colors">
+                    <div key={h.id} className="rounded-[8px]">
+                      {/* Main row */}
                       <div
                         className={`flex items-center gap-3 py-2 px-2 rounded-[8px] cursor-pointer select-none
                           ${done ? 'hover:bg-accent-light' : 'hover:bg-border-light'}`}
-                        onClick={e => {
-                          e.stopPropagation()
-                          if (isVariant) {
-                            setDashHabitPicker(pickerOpen ? null : h.id)
-                          } else {
-                            markHabit(h.id)
-                          }
+                        onClick={() => {
+                          if (isVariant) setDashHabitPicker(pickerOpen ? null : h.id)
+                          else markHabit(h.id)
                         }}
                       >
                         <div className={`w-5 h-5 rounded-[5px] border flex items-center justify-center flex-shrink-0 transition-all
@@ -468,19 +586,28 @@ export default function Home() {
                           {h.name}
                           {isVariant && variant && <span className="ml-1.5 text-[11px] text-accent font-medium">· {variant}</span>}
                         </span>
-                        {streak > 0 && <span className="text-[11px] text-accent font-medium flex-shrink-0">{streak}d 🔥</span>}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {timeToday > 0 && (
+                            <span className="text-[10px] text-muted bg-border-light px-1.5 py-0.5 rounded-full">⏱ {fmtTime(timeToday)}</span>
+                          )}
+                          {done && (
+                            <button
+                              onClick={e => { e.stopPropagation(); setShowTimeFor(timeOpen ? null : h.id); setTimeInput(timeToday ? String(timeToday) : '') }}
+                              className="text-[10px] text-muted hover:text-accent px-1.5 py-0.5 rounded hover:bg-accent-light transition-colors">
+                              {timeToday ? '⏱ edit' : '⏱ +time'}
+                            </button>
+                          )}
+                          {streak > 0 && <span className="text-[11px] text-accent font-medium">{streak}d 🔥</span>}
+                        </div>
                       </div>
 
-                      {/* Variant pills (inline) */}
+                      {/* Variant pills */}
                       {pickerOpen && isVariant && (
                         <div className="flex flex-wrap gap-1.5 px-2 pb-2 pt-1" onClick={e => e.stopPropagation()}>
                           {h.variants.map(v => (
-                            <button key={v}
-                              onClick={() => markHabit(h.id, v)}
+                            <button key={v} onClick={() => markHabit(h.id, v)}
                               className={`px-2.5 py-1 rounded-full border text-[11px] transition-all
-                                ${variant === v
-                                  ? 'bg-accent border-accent text-white font-medium'
-                                  : 'border-border text-muted hover:border-accent hover:text-accent hover:bg-accent-light'}`}>
+                                ${variant === v ? 'bg-accent border-accent text-white font-medium' : 'border-border text-muted hover:border-accent hover:text-accent hover:bg-accent-light'}`}>
                               {v}
                             </button>
                           ))}
@@ -492,12 +619,27 @@ export default function Home() {
                           )}
                         </div>
                       )}
+
+                      {/* Time input */}
+                      {timeOpen && (
+                        <div className="flex items-center gap-2 px-2 pb-2 pt-1" onClick={e => e.stopPropagation()}>
+                          <span className="text-[11px] text-muted flex-shrink-0">⏱ Time spent today</span>
+                          <input autoFocus type="number" min="1" placeholder="min"
+                            className="form-input w-[70px] text-center text-[12px] py-1"
+                            value={timeInput}
+                            onChange={e => setTimeInput(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && saveHabitTime(h.id)}
+                          />
+                          <span className="text-[11px] text-muted flex-shrink-0">min</span>
+                          <button onClick={() => saveHabitTime(h.id)} className="btn btn-primary btn-sm px-2 py-1 text-[11px]">Save</button>
+                          <button onClick={() => { setShowTimeFor(null); setTimeInput('') }} className="text-[11px] text-muted hover:text-text">✕</button>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
               </div>
-            )
-          }
+            )}
         </div>
 
         {/* Currently reading */}
@@ -531,16 +673,13 @@ export default function Home() {
                           </div>
                           <span className="text-[11px] text-muted flex-shrink-0">{pct}%</span>
                         </div>
-                        {b.total_pages > 0 && (
-                          <p className="text-[10px] text-faint mt-0.5">{b.pages_read || 0} / {b.total_pages} pages</p>
-                        )}
+                        {b.total_pages > 0 && <p className="text-[10px] text-faint mt-0.5">{b.pages_read || 0} / {b.total_pages} pages</p>}
                       </div>
                     </div>
                   )
                 })}
               </div>
-            )
-          }
+            )}
         </div>
 
         {/* Active goals */}
@@ -568,33 +707,73 @@ export default function Home() {
                   )
                 })}
               </div>
-            )
-          }
+            )}
         </div>
       </div>
 
+      {/* ── Time Invested ─────────────────────────────────────── */}
+      {habitsWithTime.length > 0 && (
+        <div className="card mb-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-medium text-[14px]">Time invested</h3>
+            <span className="text-[11px] text-faint">Total time logged per habit</span>
+          </div>
+          <div className="flex flex-col gap-4">
+            {habitsWithTime.map(h => {
+              const milestone = getMilestoneMsg(h.name, h.totalMin)
+              const hTotal = h.totalMin / 60
+              return (
+                <div key={h.id}>
+                  <div className="flex items-center gap-3 mb-1.5">
+                    <span className="text-[13px] font-medium flex-1 truncate">{h.name}</span>
+                    <span className="text-[13px] font-serif text-accent flex-shrink-0">{fmtTime(h.totalMin)}</span>
+                    {h.todayMin > 0 && (
+                      <span className="text-[10px] text-muted bg-border-light px-1.5 py-0.5 rounded-full flex-shrink-0">+{fmtTime(h.todayMin)} today</span>
+                    )}
+                  </div>
+                  {/* Progress bar toward next milestone */}
+                  {(() => {
+                    const milestones = [60, 300, 600, 1500, 3000, 6000, 30000, 60000]
+                    const next = milestones.find(m => h.totalMin < m) || milestones[milestones.length - 1]
+                    const prev = milestones[milestones.indexOf(next) - 1] || 0
+                    const pct = Math.min(100, ((h.totalMin - prev) / (next - prev)) * 100)
+                    return (
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1.5 bg-border-light rounded-full overflow-hidden">
+                          <div className="h-full bg-accent rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="text-[10px] text-faint flex-shrink-0">{fmtTime(next)} goal</span>
+                      </div>
+                    )
+                  })()}
+                  {milestone && (
+                    <p className="text-[11px] text-accent mt-1.5 flex items-center gap-1.5">
+                      <span>{milestone.icon}</span> {milestone.text}
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ── Writing Dashboard ──────────────────────────────────── */}
       <div className="card mb-5">
-        {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <div>
-            <h3 className="font-medium text-[14px] flex items-center gap-2">
-              <span>✍️</span> Writing Dashboard
-            </h3>
+            <h3 className="font-medium text-[14px] flex items-center gap-2"><span>✍️</span> Writing Dashboard</h3>
             <p className="text-[12px] text-muted mt-0.5 italic">{getWritingMessage(writingStreak, totalWords)}</p>
           </div>
-          <button onClick={() => navigate('/habits')} className="text-[12px] text-accent hover:underline flex-shrink-0">
-            Habits →
-          </button>
+          <button onClick={() => navigate('/habits')} className="text-[12px] text-accent hover:underline flex-shrink-0">Habits →</button>
         </div>
 
-        {/* Stat pills */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
           {[
-            { label: 'Words written', value: totalWords >= 1000 ? `${(totalWords / 1000).toFixed(1)}k` : totalWords.toLocaleString(), color: '#2d5a3d' },
+            { label: 'Words written',    value: totalWords >= 1000 ? `${(totalWords / 1000).toFixed(1)}k` : totalWords.toLocaleString(), color: '#2d5a3d' },
             { label: 'Chapters released', value: totalChapters, color: '#2563eb' },
-            { label: 'Writing streak', value: writingStreak > 0 ? `🔥 ${writingStreak}d` : '—', color: '#b8860b' },
-            { label: 'Days written', value: writingDays, color: '#c0392b' },
+            { label: 'Writing streak',   value: writingStreak > 0 ? `🔥 ${writingStreak}d` : '—', color: '#b8860b' },
+            { label: 'Days written',     value: writingLogs.length, color: '#c0392b' },
           ].map(s => (
             <div key={s.label} className="bg-border-light rounded-[8px] px-4 py-3 text-center">
               <p className="font-serif text-[22px] leading-none mb-1" style={{ color: s.color }}>{s.value}</p>
@@ -603,18 +782,14 @@ export default function Home() {
           ))}
         </div>
 
-        {/* Chart */}
         <div className="mb-5">
           <div className="flex items-center justify-between mb-3">
             <p className="text-[12px] font-medium text-muted">Daily word count</p>
             <div className="flex gap-1">
               {['daily', 'weekly', 'monthly'].map(f => (
-                <button key={f}
-                  onClick={() => setChartFilter(f)}
+                <button key={f} onClick={() => setChartFilter(f)}
                   className={`px-2.5 py-1 rounded-[5px] text-[11px] capitalize transition-all
-                    ${chartFilter === f
-                      ? 'bg-accent text-white font-medium'
-                      : 'text-muted hover:bg-border-light'}`}>
+                    ${chartFilter === f ? 'bg-accent text-white font-medium' : 'text-muted hover:bg-border-light'}`}>
                   {f}
                 </button>
               ))}
@@ -630,7 +805,6 @@ export default function Home() {
           }
         </div>
 
-        {/* Today's log */}
         <div className="border-t border-border-light pt-4">
           {writingToday ? (
             <div className="flex items-center justify-between">
@@ -645,36 +819,23 @@ export default function Home() {
                   <span className="text-text font-medium">{(writingToday.word_count || 0).toLocaleString()} words</span>
                 </span>
               </div>
-              <button
-                onClick={() => setWritingForm({ chapters: String(writingToday.chapters), wordCount: String(writingToday.word_count) })}
-                className="text-[11px] text-accent hover:underline">
-                Edit
-              </button>
+              <button onClick={() => setWritingForm({ chapters: String(writingToday.chapters), wordCount: String(writingToday.word_count) })}
+                className="text-[11px] text-accent hover:underline">Edit</button>
             </div>
           ) : (
             <div className="flex flex-col sm:flex-row gap-2 items-end">
               <div>
                 <label className="text-[10px] text-muted uppercase tracking-[.05em] block mb-1">Chapters released</label>
-                <input
-                  type="number" min="0" placeholder="0"
-                  className="form-input w-[110px] text-center"
-                  value={writingForm.chapters}
-                  onChange={e => setWritingForm(p => ({ ...p, chapters: e.target.value }))}
-                />
+                <input type="number" min="0" placeholder="0" className="form-input w-[110px] text-center"
+                  value={writingForm.chapters} onChange={e => setWritingForm(p => ({ ...p, chapters: e.target.value }))} />
               </div>
               <div>
                 <label className="text-[10px] text-muted uppercase tracking-[.05em] block mb-1">Words written</label>
-                <input
-                  type="number" min="0" placeholder="0"
-                  className="form-input w-[140px] text-center"
-                  value={writingForm.wordCount}
-                  onChange={e => setWritingForm(p => ({ ...p, wordCount: e.target.value }))}
-                  onKeyDown={e => e.key === 'Enter' && saveWriting()}
-                />
+                <input type="number" min="0" placeholder="0" className="form-input w-[140px] text-center"
+                  value={writingForm.wordCount} onChange={e => setWritingForm(p => ({ ...p, wordCount: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && saveWriting()} />
               </div>
-              <button
-                onClick={saveWriting}
-                disabled={savingWriting || (!writingForm.chapters && !writingForm.wordCount)}
+              <button onClick={saveWriting} disabled={savingWriting || (!writingForm.chapters && !writingForm.wordCount)}
                 className="btn btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
                 {savingWriting ? 'Saving…' : 'Log today'}
               </button>
@@ -683,7 +844,10 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Reading calendar — full width */}
+      {/* ── AI Coach ──────────────────────────────────────────── */}
+      <AiCoach buildContext={buildContext} />
+
+      {/* Reading calendar */}
       <BookCalendar sessions={sessions} />
     </div>
   )

@@ -27,6 +27,8 @@ export default function Habits() {
   const [variantInput, setVariantInput] = useState('')
   const [confirm, setConfirm]     = useState(null)
   const [variantPicker, setVariantPicker] = useState(null) // { hid, date, variants }
+  const [timeInputs, setTimeInputs] = useState({}) // { hid: minutesString }
+  const [showTimeFor, setShowTimeFor] = useState(null) // hid
 
   useEffect(() => {
     Promise.all([
@@ -97,21 +99,46 @@ export default function Habits() {
     const idx = entries.findIndex(e=>e.date===date)
     let newEntries
     if (idx>=0) {
+      const existDuration = entries[idx].duration_min || null
       if (variant && entries[idx].variant===variant) {
         newEntries = entries.filter((_,i)=>i!==idx)
         await dbRun('Clear log', ()=>sb.from('habit_logs').delete().eq('habit_id',hid).eq('date',date))
       } else if (variant) {
         newEntries = entries.map((e,i)=>i===idx?{...e,variant}:e)
-        await dbRun('Update log', ()=>sb.from('habit_logs').upsert({habit_id:hid,date,variant}))
+        await dbRun('Update log', ()=>sb.from('habit_logs').upsert({habit_id:hid,date,variant,duration_min:existDuration}))
       } else {
         newEntries = entries.filter((_,i)=>i!==idx)
         await dbRun('Clear log', ()=>sb.from('habit_logs').delete().eq('habit_id',hid).eq('date',date))
       }
     } else {
-      newEntries = [...entries, { date, variant:variant||null }]
-      await dbRun('Add log', ()=>sb.from('habit_logs').upsert({habit_id:hid,date,variant:variant||null}))
+      newEntries = [...entries, { date, variant:variant||null, duration_min:null }]
+      await dbRun('Add log', ()=>sb.from('habit_logs').upsert({habit_id:hid,date,variant:variant||null,duration_min:null}))
     }
     setLogs(p => ({ ...p, [hid]:newEntries }))
+  }
+
+  async function saveHabitTime(hid) {
+    const mins = parseInt(timeInputs[hid])
+    setShowTimeFor(null)
+    if (!mins || mins <= 0) return
+    const date = today()
+    const existing = (logs[hid]||[]).find(e=>e.date===date)
+    if (!existing) return
+    try {
+      await dbRun('Save time', ()=>sb.from('habit_logs').upsert({
+        habit_id:hid, date, variant:existing.variant||null, duration_min:mins
+      }))
+      setLogs(p => ({ ...p, [hid]: p[hid].map(e=>e.date===date?{...e,duration_min:mins}:e) }))
+      const h = Math.floor(mins/60), m = mins%60
+      const label = h===0?`${m}m`:m===0?`${h}h`:`${h}h ${m}m`
+      toast(`${label} logged ✓`)
+    } catch { toast('Save failed','error') }
+  }
+
+  function fmtTime(mins) {
+    if (!mins) return null
+    const h = Math.floor(mins/60), m = mins%60
+    return h===0?`${m}m`:m===0?`${h}h`:`${h}h ${m}m`
   }
 
   function getStreak(hid) {
@@ -278,6 +305,12 @@ export default function Habits() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      {(() => {
+                        const totalMin = (logs[h.id]||[]).reduce((a,e)=>a+(e.duration_min||0),0)
+                        return totalMin > 0 ? (
+                          <span className="text-[11px] text-muted bg-border-light px-2.5 py-1 rounded-full">⏱ {fmtTime(totalMin)}</span>
+                        ) : null
+                      })()}
                       <div className="flex items-center gap-1.5 bg-accent-light text-accent px-3 py-1 rounded-full text-[12px] font-semibold">
                         <TrendIcon className="w-3 h-3"/>
                         {streak} day{streak!==1?'s':''}
@@ -361,6 +394,44 @@ export default function Habits() {
                       {doneToday ? '✓ Done today — tap to undo' : '+ Mark today as done'}
                     </button>
                   )}
+
+                  {/* Time tracking */}
+                  {doneToday && (() => {
+                    const todayEntry = (logs[h.id]||[]).find(e=>e.date===today())
+                    const loggedMin  = todayEntry?.duration_min || 0
+                    const totalMin   = (logs[h.id]||[]).reduce((a,e)=>a+(e.duration_min||0),0)
+                    const timeOpen   = showTimeFor===h.id
+                    return (
+                      <div className="mt-2 pt-2 border-t border-border-light">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {loggedMin > 0
+                            ? <span className="text-[12px] text-muted">⏱ <span className="text-accent font-medium">{fmtTime(loggedMin)}</span> today
+                                {totalMin > 0 && <span className="text-faint ml-1">· {fmtTime(totalMin)} total</span>}
+                              </span>
+                            : <span className="text-[11px] text-faint">How long did you work on this?</span>
+                          }
+                          <button
+                            onClick={()=>{ setShowTimeFor(timeOpen?null:h.id); setTimeInputs(p=>({...p,[h.id]:loggedMin?String(loggedMin):''})) }}
+                            className="text-[11px] text-accent hover:underline">
+                            {loggedMin?'Edit time':'+ Log time'}
+                          </button>
+                        </div>
+                        {timeOpen && (
+                          <div className="flex items-center gap-2 mt-2">
+                            <input autoFocus type="number" min="1" placeholder="minutes"
+                              className="form-input w-[100px] text-center text-[12px]"
+                              value={timeInputs[h.id]||''}
+                              onChange={e=>setTimeInputs(p=>({...p,[h.id]:e.target.value}))}
+                              onKeyDown={e=>e.key==='Enter'&&saveHabitTime(h.id)}
+                            />
+                            <span className="text-[11px] text-muted">min</span>
+                            <button onClick={()=>saveHabitTime(h.id)} className="btn btn-primary btn-sm px-3 py-1 text-[12px]">Save</button>
+                            <button onClick={()=>setShowTimeFor(null)} className="text-[12px] text-muted hover:text-text">✕</button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               )
             })}
