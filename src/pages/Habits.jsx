@@ -18,6 +18,9 @@ export default function Habits() {
   const toast = useToast()
   const [habits, setHabits]       = useState([])
   const [logs, setLogs]           = useState({}) // { habitId: [{date, variant}] }
+  const [writingLogs, setWritingLogs] = useState([]) // [{id,date,chapters,word_count}]
+  const [writingForm, setWritingForm] = useState({ chapters:'', wordCount:'' })
+  const [savingWriting, setSavingWriting] = useState(false)
   const [loading, setLoading]     = useState(true)
   const [modal, setModal]         = useState(false)
   const [form, setForm]           = useState(BLANK_HABIT)
@@ -28,8 +31,9 @@ export default function Habits() {
   useEffect(() => {
     Promise.all([
       sb.from('habits').select('*'),
-      sb.from('habit_logs').select('*')
-    ]).then(([{ data: hData }, { data: lData }]) => {
+      sb.from('habit_logs').select('*'),
+      sb.from('writing_logs').select('*').order('date', { ascending: false }),
+    ]).then(([{ data: hData }, { data: lData }, { data: wData }]) => {
       setHabits((hData||[]).map(rowToHabit))
       const logMap = {}
       ;(lData||[]).forEach(l => {
@@ -37,9 +41,34 @@ export default function Habits() {
         logMap[l.habit_id].push({ date: l.date, variant: l.variant })
       })
       setLogs(logMap)
+      setWritingLogs(wData||[])
       setLoading(false)
     })
   }, [])
+
+  async function saveWritingToday() {
+    const ch = parseInt(writingForm.chapters) || 0
+    const wc = parseInt(writingForm.wordCount) || 0
+    if (!ch && !wc) return
+    setSavingWriting(true)
+    const date = today()
+    const existing = writingLogs.find(l => l.date === date)
+    const entry = {
+      id: existing?.id || uid(),
+      date,
+      chapters: ch,
+      word_count: wc,
+      created_at: existing?.created_at || date,
+      updated_at: date,
+    }
+    try {
+      await dbRun('Save writing', () => sb.from('writing_logs').upsert(entry))
+      setWritingLogs(prev => [entry, ...prev.filter(l => l.date !== date)])
+      setWritingForm({ chapters:'', wordCount:'' })
+      toast('Writing logged ✓')
+    } catch { toast('Save failed','error') }
+    setSavingWriting(false)
+  }
 
   async function saveHabit() {
     if (!form.name.trim()) return
@@ -121,10 +150,117 @@ export default function Habits() {
             action={<button className="btn btn-primary" onClick={()=>setModal(true)}><PlusIcon className="w-3.5 h-3.5"/>Add first habit</button>}/>
         : <div className="flex flex-col gap-4">
             {habits.map(h => {
+              const isVariant = h.trackType==='variants'
+              const isWriting = h.trackType==='writing'
+
+              // Writing habit uses writing_logs for its data
+              if (isWriting) {
+                const writingDateSet = new Set(writingLogs.map(l => l.date))
+                const writingStreak = (() => {
+                  let s = 0; const d = new Date(today())
+                  if (!writingDateSet.has(today())) d.setDate(d.getDate()-1)
+                  while (writingDateSet.has(d.toISOString().slice(0,10))) { s++; d.setDate(d.getDate()-1) }
+                  return s
+                })()
+                const totalWords    = writingLogs.reduce((a,l)=>a+(l.word_count||0),0)
+                const totalChapters = writingLogs.reduce((a,l)=>a+(l.chapters||0),0)
+                const writingToday  = writingLogs.find(l=>l.date===today())
+                return (
+                  <div key={h.id} className="bg-surface border border-border rounded-card p-5">
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-[8px] bg-warn-light flex items-center justify-center flex-shrink-0 text-[18px]">✍️</div>
+                        <div>
+                          <p className="font-medium text-[15px]">{h.name}</p>
+                          <p className="text-[11px] text-muted flex gap-2 mt-0.5">
+                            <span>{h.freq}</span>
+                            <span className="bg-warn-light text-warn px-1.5 rounded text-[10px] uppercase tracking-wide">writing</span>
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 bg-warn-light text-warn px-3 py-1 rounded-full text-[12px] font-semibold">
+                          🔥 {writingStreak} day{writingStreak!==1?'s':''}
+                        </div>
+                        <button onClick={()=>setConfirm({id:h.id,name:h.name})} className="btn btn-ghost btn-sm btn-icon">
+                          <TrashIcon className="w-3.5 h-3.5"/>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Stats row */}
+                    <div className="grid grid-cols-3 gap-3 mb-4">
+                      {[
+                        { label:'Total words', value: totalWords>=1000?`${(totalWords/1000).toFixed(1)}k`:totalWords.toLocaleString() },
+                        { label:'Total chapters', value: totalChapters },
+                        { label:'Writing days', value: writingLogs.length },
+                      ].map(s=>(
+                        <div key={s.label} className="bg-border-light rounded-[7px] px-3 py-2.5 text-center">
+                          <p className="font-serif text-[20px] text-accent">{s.value}</p>
+                          <p className="text-[10px] text-muted mt-0.5">{s.label}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Heatmap (from writing_logs) */}
+                    <div className="flex gap-0.5 flex-wrap mb-4">
+                      {days.map(d => {
+                        const hasEntry = writingDateSet.has(d)
+                        const isToday  = d===today()
+                        const wl = writingLogs.find(l=>l.date===d)
+                        const label = new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short'})
+                          + (wl ? ` · ${wl.chapters}ch ${(wl.word_count||0).toLocaleString()}w` : '')
+                        return (
+                          <div key={d} className="relative group/cell">
+                            <div
+                              className={`w-[18px] h-[18px] rounded-[3px]
+                                ${hasEntry ? 'bg-warn' : 'bg-border-light'}
+                                ${isToday ? 'ring-2 ring-warn ring-offset-1' : ''}`}
+                            />
+                            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-text text-white text-[10px] px-2 py-1 rounded-[4px] whitespace-nowrap opacity-0 group-hover/cell:opacity-100 pointer-events-none z-10 transition-opacity">
+                              {label}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Log today */}
+                    {writingToday ? (
+                      <div className="flex items-center gap-3 bg-warn-light border border-warn/30 rounded-[8px] px-4 py-3">
+                        <span className="text-[13px] text-warn font-medium flex-1">
+                          ✓ {writingToday.chapters} chapter{writingToday.chapters!==1?'s':''} · {(writingToday.word_count||0).toLocaleString()} words logged today
+                        </span>
+                        <button onClick={()=>setWritingForm({chapters:String(writingToday.chapters),wordCount:String(writingToday.word_count)})}
+                          className="text-[11px] text-warn hover:underline flex-shrink-0">Edit</button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2 items-end">
+                        <div>
+                          <p className="text-[10px] text-muted mb-1">Chapters released</p>
+                          <input type="number" min="0" placeholder="0" className="form-input w-[100px] text-center"
+                            value={writingForm.chapters} onChange={e=>setWritingForm(p=>({...p,chapters:e.target.value}))}/>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted mb-1">Words written</p>
+                          <input type="number" min="0" placeholder="0" className="form-input w-[130px] text-center"
+                            value={writingForm.wordCount} onChange={e=>setWritingForm(p=>({...p,wordCount:e.target.value}))}
+                            onKeyDown={e=>e.key==='Enter'&&saveWritingToday()}/>
+                        </div>
+                        <button onClick={saveWritingToday} disabled={savingWriting||(!writingForm.chapters&&!writingForm.wordCount)}
+                          className="btn btn-primary disabled:opacity-40">
+                          {savingWriting?'Saving…':'Log today'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+
               const streak = getStreak(h.id)
               const doneToday = isDone(h.id, today())
               const variantToday = getVariant(h.id, today())
-              const isVariant = h.trackType==='variants'
               return (
                 <div key={h.id} className="bg-surface border border-border rounded-card p-5">
                   {/* Header */}
@@ -253,9 +389,16 @@ export default function Habits() {
               <select className="form-select" value={form.trackType} onChange={e=>setForm(p=>({...p,trackType:e.target.value,variants:[]}))}>
                 <option value="simple">Simple — mark done</option>
                 <option value="variants">Variants — choose type</option>
+                <option value="writing">Writing — chapters & words</option>
               </select>
             </div>
           </div>
+          {form.trackType==='writing' && (
+            <div className="bg-warn-light border border-warn/30 rounded-[8px] p-3">
+              <p className="text-[12px] text-warn font-medium">✍️ Writing habit</p>
+              <p className="text-[11px] text-muted mt-0.5">Each day you'll log chapters released and words written. Stats appear on the Dashboard.</p>
+            </div>
+          )}
           {form.trackType==='variants' && (
             <div>
               <label className="form-label">Variants</label>

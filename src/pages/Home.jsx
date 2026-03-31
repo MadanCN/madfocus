@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { Ring } from '../components/ui'
 
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6) }
 function today() { return new Date().toISOString().slice(0, 10) }
 
-function getStreak(logs) {
+function calcHabitStreak(logs) {
   const s = new Set(logs.map(e => e.date))
   let streak = 0
   const d = new Date(today())
@@ -16,16 +17,127 @@ function getStreak(logs) {
   return streak
 }
 
-// ── Book Reading Calendar ──
+function calcWritingStreak(logs) {
+  const s = new Set(logs.map(l => l.date))
+  let streak = 0
+  const d = new Date(today())
+  if (!s.has(today())) d.setDate(d.getDate() - 1)
+  while (s.has(d.toISOString().slice(0, 10))) { streak++; d.setDate(d.getDate() - 1) }
+  return streak
+}
+
+function getWritingMessage(streak, totalWords) {
+  if (streak === 0 && totalWords === 0) return 'Start your writing journey today. Every chapter begins with a single word.'
+  if (streak === 0) return "You've written before — pick it back up. Your readers are waiting."
+  if (streak === 1) return 'Day 1 done! Show up tomorrow and the habit forms.'
+  if (streak < 7) return `${streak} days in a row. You're building something real.`
+  if (streak < 14) return `A full week of writing! Keep the momentum — don't break the chain.`
+  if (streak < 30) return `${streak} days strong. You're in the zone now. Ship those chapters!`
+  if (streak < 60) return `A month of consistent writing! Readers can feel your dedication.`
+  return `${streak} days straight. Unstoppable. This is what serious writers are made of.`
+}
+
+// ── Word Count Bar Chart ──────────────────────────────────────
+function WordChart({ logs, filter }) {
+  const data = useMemo(() => {
+    if (filter === 'daily') {
+      const map = {}
+      logs.forEach(l => { map[l.date] = l.word_count })
+      return Array.from({ length: 30 }, (_, i) => {
+        const d = new Date(); d.setHours(12, 0, 0, 0)
+        d.setDate(d.getDate() - (29 - i))
+        const ds = d.toISOString().slice(0, 10)
+        return {
+          label: (i === 0 || i === 14 || i === 29)
+            ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+            : '',
+          fullLabel: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+          value: map[ds] || 0,
+          isToday: ds === today(),
+        }
+      })
+    } else if (filter === 'weekly') {
+      const weekMap = {}
+      logs.forEach(l => {
+        const d = new Date(l.date + 'T12:00:00')
+        const mon = new Date(d)
+        mon.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+        const key = mon.toISOString().slice(0, 10)
+        weekMap[key] = (weekMap[key] || 0) + l.word_count
+      })
+      return Array.from({ length: 12 }, (_, i) => {
+        const d = new Date(); d.setHours(12, 0, 0, 0)
+        d.setDate(d.getDate() - ((d.getDay() + 6) % 7) - (11 - i) * 7)
+        const key = d.toISOString().slice(0, 10)
+        const end = new Date(d); end.setDate(end.getDate() + 6)
+        return {
+          label: (i === 0 || i === 5 || i === 11)
+            ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+            : '',
+          fullLabel: `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${end.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`,
+          value: weekMap[key] || 0,
+          isToday: i === 11,
+        }
+      })
+    } else {
+      const monthMap = {}
+      logs.forEach(l => {
+        const key = l.date.slice(0, 7)
+        monthMap[key] = (monthMap[key] || 0) + l.word_count
+      })
+      return Array.from({ length: 6 }, (_, i) => {
+        const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(1)
+        d.setMonth(d.getMonth() - (5 - i))
+        const key = d.toISOString().slice(0, 7)
+        return {
+          label: d.toLocaleDateString('en-GB', { month: 'short' }),
+          fullLabel: d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }),
+          value: monthMap[key] || 0,
+          isToday: i === 5,
+        }
+      })
+    }
+  }, [logs, filter])
+
+  const max = Math.max(...data.map(d => d.value), 1)
+
+  return (
+    <div>
+      <div className="flex items-end gap-[3px]" style={{ height: '100px' }}>
+        {data.map((d, i) => (
+          <div key={i} className="relative flex flex-col justify-end flex-1 h-full group">
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-text text-white text-[10px] px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-10 transition-opacity">
+              {d.fullLabel}: {d.value.toLocaleString()} words
+            </div>
+            <div
+              className="w-full rounded-t-[2px] transition-all duration-300"
+              style={{
+                height: `${Math.max(d.value > 0 ? 4 : 1, Math.round((d.value / max) * 100))}%`,
+                background: d.isToday ? '#b8860b' : d.value > 0 ? '#2d5a3d' : '#f0ede8',
+              }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-[3px] mt-1.5">
+        {data.map((d, i) => (
+          <div key={i} className="flex-1 text-[8px] text-faint text-center truncate leading-tight">
+            {d.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Book Reading Calendar ─────────────────────────────────────
 function BookCalendar({ sessions }) {
-  // Build a map of date → total pages read
   const dayMap = {}
   sessions.forEach(s => {
     if (!s.date || !s.pages_read) return
     dayMap[s.date] = (dayMap[s.date] || 0) + s.pages_read
   })
 
-  // Last 12 weeks of activity (84 days)
   const days = []
   const end = new Date(today())
   for (let i = 83; i >= 0; i--) {
@@ -42,11 +154,9 @@ function BookCalendar({ sessions }) {
     return Math.max(0.15, Math.min(1, pages / maxPages))
   }
 
-  // Group into weeks
   const weeks = []
   let week = []
-  // Pad first week
-  const firstDow = days[0].dow === 0 ? 6 : days[0].dow - 1 // Mon=0
+  const firstDow = days[0].dow === 0 ? 6 : days[0].dow - 1
   for (let i = 0; i < firstDow; i++) week.push(null)
   days.forEach(d => {
     week.push(d)
@@ -79,7 +189,6 @@ function BookCalendar({ sessions }) {
         </div>
       </div>
 
-      {/* Month labels */}
       <div className="flex gap-[3px] mb-1 ml-[18px]">
         {weeks.map((_, wi) => (
           <div key={wi} className="w-[11px] text-[9px] text-faint text-center shrink-0">
@@ -89,14 +198,11 @@ function BookCalendar({ sessions }) {
       </div>
 
       <div className="flex gap-[3px]">
-        {/* Day labels */}
         <div className="flex flex-col gap-[3px] mr-0.5">
           {['M', '', 'W', '', 'F', '', 'S'].map((d, i) => (
             <div key={i} className="w-[14px] h-[11px] text-[9px] text-faint leading-[11px]">{d}</div>
           ))}
         </div>
-
-        {/* Grid */}
         {weeks.map((week, wi) => (
           <div key={wi} className="flex flex-col gap-[3px]">
             {Array.from({ length: 7 }).map((_, di) => {
@@ -109,7 +215,7 @@ function BookCalendar({ sessions }) {
                   style={{
                     background: cell?.pages
                       ? `rgba(45,90,61,${opacity(cell.pages)})`
-                      : cell === null ? 'transparent' : '#f0ede8'
+                      : cell === null ? 'transparent' : '#f0ede8',
                   }}
                 />
               )
@@ -130,13 +236,23 @@ function BookCalendar({ sessions }) {
   )
 }
 
+// ── Main Dashboard ────────────────────────────────────────────
 export default function Home() {
   const navigate = useNavigate()
   const [data, setData] = useState({
     tasks: [], habits: [], habitLogs: {}, goals: [],
-    sessions: [], books: [], pomSessions: []
+    sessions: [], books: [], pomSessions: [],
   })
+  const [writingLogs, setWritingLogs] = useState([])
   const [loading, setLoading] = useState(true)
+
+  // Writing section state
+  const [chartFilter, setChartFilter] = useState('daily')
+  const [writingForm, setWritingForm] = useState({ chapters: '', wordCount: '' })
+  const [savingWriting, setSavingWriting] = useState(false)
+
+  // Interactive habits: variant picker open for which habit
+  const [dashHabitPicker, setDashHabitPicker] = useState(null) // hid or null
 
   useEffect(() => {
     Promise.all([
@@ -147,32 +263,97 @@ export default function Home() {
       sb.from('reading_sessions').select('*'),
       sb.from('books').select('id,title,cover_url,status,pages_read,total_pages,author'),
       sb.from('pomodoro_sessions').select('*').eq('date', today()),
-    ]).then(([{ data: t }, { data: h }, { data: hl }, { data: g }, { data: rs }, { data: b }, { data: ps }]) => {
+      sb.from('writing_logs').select('*').order('date', { ascending: false }),
+    ]).then(([
+      { data: t }, { data: h }, { data: hl }, { data: g },
+      { data: rs }, { data: b }, { data: ps }, { data: wl },
+    ]) => {
       const logMap = {}
       ;(hl || []).forEach(l => {
         if (!logMap[l.habit_id]) logMap[l.habit_id] = []
         logMap[l.habit_id].push(l)
       })
-      setData({ tasks: t || [], habits: h || [], habitLogs: logMap, goals: g || [], sessions: rs || [], books: b || [], pomSessions: ps || [] })
+      setData({
+        tasks: t || [], habits: h || [], habitLogs: logMap,
+        goals: g || [], sessions: rs || [], books: b || [], pomSessions: ps || [],
+      })
+      setWritingLogs(wl || [])
       setLoading(false)
     })
   }, [])
 
+  // ── Mark a habit from Dashboard ──────────────────────────────
+  async function markHabit(hid, variant) {
+    const date = today()
+    const entries = data.habitLogs[hid] || []
+    const idx = entries.findIndex(e => e.date === date)
+    let newEntries
+
+    if (idx >= 0) {
+      if (variant && entries[idx].variant === variant) {
+        newEntries = entries.filter((_, i) => i !== idx)
+        await sb.from('habit_logs').delete().eq('habit_id', hid).eq('date', date)
+      } else if (variant) {
+        newEntries = entries.map((e, i) => i === idx ? { ...e, variant } : e)
+        await sb.from('habit_logs').upsert({ habit_id: hid, date, variant })
+      } else {
+        newEntries = entries.filter((_, i) => i !== idx)
+        await sb.from('habit_logs').delete().eq('habit_id', hid).eq('date', date)
+      }
+    } else {
+      newEntries = [...entries, { date, variant: variant || null }]
+      await sb.from('habit_logs').upsert({ habit_id: hid, date, variant: variant || null })
+    }
+
+    setData(prev => ({ ...prev, habitLogs: { ...prev.habitLogs, [hid]: newEntries } }))
+    setDashHabitPicker(null)
+  }
+
+  // ── Save today's writing log ─────────────────────────────────
+  async function saveWriting() {
+    const ch = parseInt(writingForm.chapters) || 0
+    const wc = parseInt(writingForm.wordCount) || 0
+    if (!ch && !wc) return
+    setSavingWriting(true)
+    const date = today()
+    const existing = writingLogs.find(l => l.date === date)
+    const entry = {
+      id: existing?.id || uid(),
+      date,
+      chapters: ch,
+      word_count: wc,
+      created_at: existing?.created_at || date,
+      updated_at: date,
+    }
+    await sb.from('writing_logs').upsert(entry)
+    setWritingLogs(prev => [entry, ...prev.filter(l => l.date !== date)])
+    setWritingForm({ chapters: '', wordCount: '' })
+    setSavingWriting(false)
+  }
+
   const { tasks, habits, habitLogs, goals, sessions, books, pomSessions } = data
 
+  // ── Computed values ──────────────────────────────────────────
   const activeTasks    = tasks.filter(t => !t.done).length
   const dueTodayTasks  = tasks.filter(t => !t.done && t.due === today()).length
   const overdueTasks   = tasks.filter(t => !t.done && t.due && t.due < today()).length
   const todayFocusMins = pomSessions.filter(s => s.type === 'focus' && s.completed).reduce((a, s) => a + s.duration, 0)
   const habitsToday    = habits.filter(h => (habitLogs[h.id] || []).some(l => l.date === today()))
   const bestStreak     = habits.reduce((best, h) => {
-    const s = getStreak(habitLogs[h.id] || [])
+    const s = calcHabitStreak(habitLogs[h.id] || [])
     return s > best.streak ? { name: h.name, streak: s } : best
   }, { name: '—', streak: 0 })
   const reading        = books.filter(b => b.status === 'reading')
   const avgGoalPct     = goals.length > 0
     ? Math.round(goals.reduce((a, g) => a + (g.target > 0 ? (g.current / g.target) * 100 : 0), 0) / goals.length)
     : 0
+
+  // Writing stats
+  const totalWords    = writingLogs.reduce((a, l) => a + (l.word_count || 0), 0)
+  const totalChapters = writingLogs.reduce((a, l) => a + (l.chapters || 0), 0)
+  const writingStreak = calcWritingStreak(writingLogs)
+  const writingDays   = writingLogs.length
+  const writingToday  = writingLogs.find(l => l.date === today())
 
   const CARDS = [
     { label: 'Active tasks',    value: activeTasks,          sub: `${dueTodayTasks} due today${overdueTasks > 0 ? ` · ${overdueTasks} overdue` : ''}`, link: '/tasks',   color: '#2d5a3d' },
@@ -245,27 +426,72 @@ export default function Home() {
           }
         </div>
 
-        {/* Habits today */}
+        {/* Habits today — now interactive */}
         <div className="card">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-medium text-[14px]">Habits today</h3>
-            <button onClick={() => navigate('/habits')} className="text-[12px] text-accent hover:underline">Track →</button>
+            <div>
+              <h3 className="font-medium text-[14px]">Habits today</h3>
+              <p className="text-[11px] text-faint mt-0.5">Tap to mark done · click arrow to track all</p>
+            </div>
+            <button onClick={() => navigate('/habits')} className="text-[12px] text-accent hover:underline flex-shrink-0">Track →</button>
           </div>
           {habits.length === 0
             ? <p className="text-[13px] text-faint py-4 text-center">No habits yet</p>
             : (
-              <div className="flex flex-col gap-2">
-                {habits.slice(0, 5).map(h => {
-                  const done = (habitLogs[h.id] || []).some(l => l.date === today())
-                  const streak = getStreak(habitLogs[h.id] || [])
+              <div className="flex flex-col gap-1" onClick={() => setDashHabitPicker(null)}>
+                {habits.map(h => {
+                  const done      = (habitLogs[h.id] || []).some(l => l.date === today())
+                  const streak    = calcHabitStreak(habitLogs[h.id] || [])
+                  const isVariant = h.track_type === 'variants'
+                  const variant   = (habitLogs[h.id] || []).find(l => l.date === today())?.variant || null
+                  const pickerOpen = dashHabitPicker === h.id
+
                   return (
-                    <div key={h.id} className="flex items-center gap-3">
-                      <div className={`w-5 h-5 rounded-[5px] border flex items-center justify-center flex-shrink-0 transition-all
-                        ${done ? 'bg-accent border-accent' : 'border-border'}`}>
-                        {done && <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>}
+                    <div key={h.id} className="rounded-[8px] transition-colors">
+                      <div
+                        className={`flex items-center gap-3 py-2 px-2 rounded-[8px] cursor-pointer select-none
+                          ${done ? 'hover:bg-accent-light' : 'hover:bg-border-light'}`}
+                        onClick={e => {
+                          e.stopPropagation()
+                          if (isVariant) {
+                            setDashHabitPicker(pickerOpen ? null : h.id)
+                          } else {
+                            markHabit(h.id)
+                          }
+                        }}
+                      >
+                        <div className={`w-5 h-5 rounded-[5px] border flex items-center justify-center flex-shrink-0 transition-all
+                          ${done ? 'bg-accent border-accent' : 'border-border hover:border-accent'}`}>
+                          {done && <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>}
+                        </div>
+                        <span className={`text-[13px] flex-1 ${done ? 'text-muted line-through' : ''}`}>
+                          {h.name}
+                          {isVariant && variant && <span className="ml-1.5 text-[11px] text-accent font-medium">· {variant}</span>}
+                        </span>
+                        {streak > 0 && <span className="text-[11px] text-accent font-medium flex-shrink-0">{streak}d 🔥</span>}
                       </div>
-                      <span className={`text-[13px] flex-1 ${done ? 'text-muted line-through' : ''}`}>{h.name}</span>
-                      {streak > 0 && <span className="text-[11px] text-accent font-medium">{streak}d 🔥</span>}
+
+                      {/* Variant pills (inline) */}
+                      {pickerOpen && isVariant && (
+                        <div className="flex flex-wrap gap-1.5 px-2 pb-2 pt-1" onClick={e => e.stopPropagation()}>
+                          {h.variants.map(v => (
+                            <button key={v}
+                              onClick={() => markHabit(h.id, v)}
+                              className={`px-2.5 py-1 rounded-full border text-[11px] transition-all
+                                ${variant === v
+                                  ? 'bg-accent border-accent text-white font-medium'
+                                  : 'border-border text-muted hover:border-accent hover:text-accent hover:bg-accent-light'}`}>
+                              {v}
+                            </button>
+                          ))}
+                          {done && (
+                            <button onClick={() => markHabit(h.id)}
+                              className="px-2.5 py-1 rounded-full border border-danger text-danger text-[11px] hover:bg-danger-light transition-all">
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )
                 })}
@@ -344,6 +570,116 @@ export default function Home() {
               </div>
             )
           }
+        </div>
+      </div>
+
+      {/* ── Writing Dashboard ──────────────────────────────────── */}
+      <div className="card mb-5">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="font-medium text-[14px] flex items-center gap-2">
+              <span>✍️</span> Writing Dashboard
+            </h3>
+            <p className="text-[12px] text-muted mt-0.5 italic">{getWritingMessage(writingStreak, totalWords)}</p>
+          </div>
+          <button onClick={() => navigate('/habits')} className="text-[12px] text-accent hover:underline flex-shrink-0">
+            Habits →
+          </button>
+        </div>
+
+        {/* Stat pills */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          {[
+            { label: 'Words written', value: totalWords >= 1000 ? `${(totalWords / 1000).toFixed(1)}k` : totalWords.toLocaleString(), color: '#2d5a3d' },
+            { label: 'Chapters released', value: totalChapters, color: '#2563eb' },
+            { label: 'Writing streak', value: writingStreak > 0 ? `🔥 ${writingStreak}d` : '—', color: '#b8860b' },
+            { label: 'Days written', value: writingDays, color: '#c0392b' },
+          ].map(s => (
+            <div key={s.label} className="bg-border-light rounded-[8px] px-4 py-3 text-center">
+              <p className="font-serif text-[22px] leading-none mb-1" style={{ color: s.color }}>{s.value}</p>
+              <p className="text-[10px] text-muted uppercase tracking-[.05em]">{s.label}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Chart */}
+        <div className="mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[12px] font-medium text-muted">Daily word count</p>
+            <div className="flex gap-1">
+              {['daily', 'weekly', 'monthly'].map(f => (
+                <button key={f}
+                  onClick={() => setChartFilter(f)}
+                  className={`px-2.5 py-1 rounded-[5px] text-[11px] capitalize transition-all
+                    ${chartFilter === f
+                      ? 'bg-accent text-white font-medium'
+                      : 'text-muted hover:bg-border-light'}`}>
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
+          {writingLogs.length === 0
+            ? (
+              <div className="h-[120px] flex items-center justify-center bg-border-light rounded-[8px]">
+                <p className="text-[12px] text-faint">No writing data yet — log your first session below</p>
+              </div>
+            )
+            : <WordChart logs={writingLogs} filter={chartFilter} />
+          }
+        </div>
+
+        {/* Today's log */}
+        <div className="border-t border-border-light pt-4">
+          {writingToday ? (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 rounded-full bg-accent flex items-center justify-center flex-shrink-0">
+                  <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>
+                </div>
+                <span className="text-[13px] text-muted">
+                  Logged today —&nbsp;
+                  <span className="text-text font-medium">{writingToday.chapters} chapter{writingToday.chapters !== 1 ? 's' : ''}</span>
+                  &nbsp;·&nbsp;
+                  <span className="text-text font-medium">{(writingToday.word_count || 0).toLocaleString()} words</span>
+                </span>
+              </div>
+              <button
+                onClick={() => setWritingForm({ chapters: String(writingToday.chapters), wordCount: String(writingToday.word_count) })}
+                className="text-[11px] text-accent hover:underline">
+                Edit
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row gap-2 items-end">
+              <div>
+                <label className="text-[10px] text-muted uppercase tracking-[.05em] block mb-1">Chapters released</label>
+                <input
+                  type="number" min="0" placeholder="0"
+                  className="form-input w-[110px] text-center"
+                  value={writingForm.chapters}
+                  onChange={e => setWritingForm(p => ({ ...p, chapters: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-muted uppercase tracking-[.05em] block mb-1">Words written</label>
+                <input
+                  type="number" min="0" placeholder="0"
+                  className="form-input w-[140px] text-center"
+                  value={writingForm.wordCount}
+                  onChange={e => setWritingForm(p => ({ ...p, wordCount: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && saveWriting()}
+                />
+              </div>
+              <button
+                onClick={saveWriting}
+                disabled={savingWriting || (!writingForm.chapters && !writingForm.wordCount)}
+                className="btn btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
+                {savingWriting ? 'Saving…' : 'Log today'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

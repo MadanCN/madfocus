@@ -148,6 +148,16 @@ create table public.custom_data (
   value jsonb default '[]'::jsonb
 );
 
+-- ── Writing Logs ───────────────────────────────────────────────
+create table public.writing_logs (
+  id          text primary key,
+  date        text not null unique,   -- YYYY-MM-DD, one entry per day
+  chapters    int  default 0,         -- chapters released that day
+  word_count  int  default 0,         -- words written that day
+  created_at  text,
+  updated_at  text
+);
+
 -- ═══════════════════════════════════════════════════════════════
 --  Row-Level Security — allow anon access (no auth required)
 --  If you add Supabase Auth later, update these policies.
@@ -159,7 +169,7 @@ begin
   foreach t in array array[
     'tasks','habits','habit_logs','goals','journal_entries',
     'pomodoro_sessions','notes','authors','series','books',
-    'reading_sessions','reading_goals','custom_data'
+    'reading_sessions','reading_goals','custom_data','writing_logs'
   ] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('create policy "anon all" on public.%I for all using (true) with check (true)', t);
