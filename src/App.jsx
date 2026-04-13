@@ -5,6 +5,7 @@ import NotesOverlay from './components/Notes/NotesOverlay'
 import FloatingFAB from './components/FloatingFAB'
 import { ToastProvider } from './components/ui'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { ThemeProvider } from './contexts/ThemeContext'
 
 // Pages
 import Home       from './pages/Home'
@@ -26,13 +27,16 @@ function ProtectedApp() {
   const { user, loading } = useAuth()
   const [notesOpen, setNotesOpen] = useState(false)
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-bg flex items-center justify-center">
-        <div className="text-muted text-[13px]">Loading…</div>
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--c-bg)' }}>
+      <div className="text-center">
+        <h2 className="font-serif text-[26px] mb-1" style={{ color: 'var(--c-text)' }}>
+          mad<span style={{ color: 'var(--c-accent)' }}>.</span>focus
+        </h2>
+        <p className="text-[13px]" style={{ color: 'var(--c-muted)' }}>Loading your workspace…</p>
       </div>
-    )
-  }
+    </div>
+  )
 
   if (!user) return <Login />
 
@@ -64,10 +68,12 @@ function ProtectedApp() {
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AuthProvider>
-        <ProtectedApp />
-      </AuthProvider>
-    </ToastProvider>
+    <ThemeProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <ProtectedApp />
+        </AuthProvider>
+      </ToastProvider>
+    </ThemeProvider>
   )
 }

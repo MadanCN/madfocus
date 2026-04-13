@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { Ring } from '../components/ui'
@@ -116,7 +116,7 @@ function WordChart({ logs, filter }) {
               {d.fullLabel}: {d.value.toLocaleString()} words
             </div>
             <div className="w-full rounded-t-[2px] transition-all duration-300"
-              style={{ height: `${Math.max(d.value > 0 ? 4 : 1, Math.round((d.value / max) * 100))}%`, background: d.isToday ? '#b8860b' : d.value > 0 ? '#2d5a3d' : '#f0ede8' }} />
+              style={{ height: `${Math.max(d.value > 0 ? 4 : 1, Math.round((d.value / max) * 100))}%`, background: d.isToday ? 'var(--c-warn)' : d.value > 0 ? 'var(--c-accent)' : 'var(--c-border)' }} />
           </div>
         ))}
       </div>
@@ -188,7 +188,7 @@ function BookCalendar({ sessions }) {
               return (
                 <div key={di} title={cell ? `${cell.date}: ${cell.pages} pages` : ''}
                   className="w-[11px] h-[11px] rounded-[2px] transition-all"
-                  style={{ background: cell?.pages ? `rgba(45,90,61,${opacity(cell.pages)})` : cell === null ? 'transparent' : '#f0ede8' }} />
+                  style={{ background: cell?.pages ? `color-mix(in srgb, var(--c-accent) ${Math.round(opacity(cell.pages) * 100)}%, transparent)` : cell === null ? 'transparent' : 'var(--c-border)' }} />
               )
             })}
           </div>
@@ -197,7 +197,7 @@ function BookCalendar({ sessions }) {
       <div className="flex items-center gap-1.5 mt-2 justify-end">
         <span className="text-[9.5px] text-faint">Less</span>
         {[0.1, 0.3, 0.55, 0.8, 1].map(o => (
-          <div key={o} className="w-[10px] h-[10px] rounded-[2px]" style={{ background: `rgba(45,90,61,${o})` }} />
+          <div key={o} className="w-[10px] h-[10px] rounded-[2px]" style={{ background: `color-mix(in srgb, var(--c-accent) ${Math.round(o * 100)}%, transparent)` }} />
         ))}
         <span className="text-[9.5px] text-faint">More</span>
       </div>
@@ -205,116 +205,6 @@ function BookCalendar({ sessions }) {
   )
 }
 
-// ── AI Coach Section ──────────────────────────────────────────
-const QUICK_QUESTIONS = [
-  "What should I focus on today?",
-  "How are my habits going?",
-  "How's my writing progress?",
-  "Any overdue tasks I should know about?",
-]
-
-function AiCoach({ buildContext }) {
-  const [messages, setMessages] = useState([
-    { role: 'assistant', text: "Hey! I have access to all your tasks, habits, goals, and writing data. Ask me anything — I'll give you a straight answer." }
-  ])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
-  const bottomRef = useRef(null)
-
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
-
-  async function send(question) {
-    const q = (question || input).trim()
-    if (!q || loading) return
-    setMessages(prev => [...prev, { role: 'user', text: q }])
-    setInput('')
-    setLoading(true)
-    try {
-      const res = await fetch('/api/assistant', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q, context: buildContext() }),
-      })
-      if (!res.ok) throw new Error('API error')
-      const { reply } = await res.json()
-      setMessages(prev => [...prev, { role: 'assistant', text: reply }])
-    } catch {
-      setMessages(prev => [...prev, { role: 'assistant', text: "Couldn't reach the AI. Check that ANTHROPIC_API_KEY is set in your Vercel env vars." }])
-    }
-    setLoading(false)
-  }
-
-  return (
-    <div className="card mb-5">
-      <div className="flex items-center gap-2.5 mb-4">
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#2d5a3d] to-[#2563eb] flex items-center justify-center flex-shrink-0">
-          <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 2a10 10 0 0 1 10 10c0 5.52-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2z"/>
-            <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
-            <line x1="9" y1="9" x2="9.01" y2="9"/>
-            <line x1="15" y1="9" x2="15.01" y2="9"/>
-          </svg>
-        </div>
-        <div>
-          <h3 className="font-medium text-[14px]">AI Coach</h3>
-          <p className="text-[11px] text-faint">Knows your tasks, habits, goals & writing</p>
-        </div>
-      </div>
-
-      {/* Message thread */}
-      <div className="flex flex-col gap-3 mb-4 max-h-[280px] overflow-y-auto pr-1">
-        {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`px-3.5 py-2.5 rounded-[10px] text-[13px] max-w-[85%] leading-relaxed
-              ${m.role === 'user'
-                ? 'bg-accent text-white rounded-tr-[3px]'
-                : 'bg-border-light text-text rounded-tl-[3px]'}`}>
-              {m.text}
-            </div>
-          </div>
-        ))}
-        {loading && (
-          <div className="flex justify-start">
-            <div className="bg-border-light px-4 py-2.5 rounded-[10px] rounded-tl-[3px] flex gap-1.5 items-center">
-              {[0, 150, 300].map(d => (
-                <div key={d} className="w-1.5 h-1.5 bg-muted rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />
-              ))}
-            </div>
-          </div>
-        )}
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Quick questions */}
-      <div className="flex flex-wrap gap-1.5 mb-3">
-        {QUICK_QUESTIONS.map(q => (
-          <button key={q} onClick={() => send(q)}
-            className="px-2.5 py-1 rounded-full border border-border text-[11px] text-muted hover:border-accent hover:text-accent hover:bg-accent-light transition-all">
-            {q}
-          </button>
-        ))}
-      </div>
-
-      {/* Input */}
-      <div className="flex gap-2">
-        <input
-          className="form-input flex-1 text-[13px]"
-          placeholder="Ask me anything about your productivity…"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && send()}
-          disabled={loading}
-        />
-        <button onClick={() => send()} disabled={!input.trim() || loading}
-          className="btn btn-primary disabled:opacity-40 disabled:cursor-not-allowed px-4">
-          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-  )
-}
 
 // ── Main Dashboard ────────────────────────────────────────────
 export default function Home() {
@@ -453,37 +343,11 @@ export default function Home() {
     .filter(h => h.totalMin > 0)
     .sort((a, b) => b.totalMin - a.totalMin)
 
-  // ── Build AI context ─────────────────────────────────────────
-  function buildContext() {
-    return {
-      date: today(),
-      tasks: {
-        active: activeTasks,
-        dueToday: tasks.filter(t => !t.done && t.due === today()).slice(0, 8).map(t => `${t.title} (${t.priority})`),
-        overdue: tasks.filter(t => !t.done && t.due && t.due < today()).slice(0, 5).map(t => `${t.title} (${t.priority})`),
-      },
-      habits: habits.map(h => ({
-        name: h.name, freq: h.freq,
-        streak: calcHabitStreak(habitLogs[h.id] || []),
-        totalTimeMin: (habitLogs[h.id] || []).reduce((a, l) => a + (l.duration_min || 0), 0),
-        doneToday: (habitLogs[h.id] || []).some(l => l.date === today()),
-        timeTodayMin: (habitLogs[h.id] || []).find(l => l.date === today())?.duration_min || 0,
-      })),
-      goals: goals.map(g => ({
-        title: g.title, current: g.current, target: g.target,
-        pct: g.target > 0 ? Math.round((g.current / g.target) * 100) : 0,
-        horizon: g.horizon,
-      })),
-      writing: { streak: writingStreak, totalWords, totalChapters, todayLog: writingToday || null },
-      focusMinutesToday: todayFocusMins,
-    }
-  }
-
   const CARDS = [
-    { label: 'Active tasks',     value: activeTasks,                        sub: `${dueTodayTasks} due today${overdueTasks > 0 ? ` · ${overdueTasks} overdue` : ''}`, link: '/tasks',  color: '#2d5a3d' },
-    { label: 'Focus time today', value: `${todayFocusMins}m`,               sub: `${pomSessions.filter(s => s.type === 'focus' && s.completed).length} sessions`,                       link: '/',       color: '#b8860b' },
-    { label: 'Habits today',     value: `${habitsToday.length}/${habits.length}`, sub: `Best streak: ${bestStreak.streak}d`,                                                              link: '/habits', color: '#2563eb' },
-    { label: 'Goals progress',   value: `${avgGoalPct}%`,                   sub: `${goals.length} active goals`,                                                                          link: '/goals',  color: '#c0392b' },
+    { label: 'Active tasks',     value: activeTasks,                        sub: `${dueTodayTasks} due today${overdueTasks > 0 ? ` · ${overdueTasks} overdue` : ''}`, link: '/tasks',  color: 'var(--c-accent)' },
+    { label: 'Focus time today', value: `${todayFocusMins}m`,               sub: `${pomSessions.filter(s => s.type === 'focus' && s.completed).length} sessions`,                       link: '/',       color: 'var(--c-warn)' },
+    { label: 'Habits today',     value: `${habitsToday.length}/${habits.length}`, sub: `Best streak: ${bestStreak.streak}d`,                                                              link: '/habits', color: '#3b82f6' },
+    { label: 'Goals progress',   value: `${avgGoalPct}%`,                   sub: `${goals.length} active goals`,                                                                          link: '/goals',  color: 'var(--c-danger)' },
   ]
 
   if (loading) return (
@@ -533,7 +397,7 @@ export default function Home() {
                 {tasks.filter(t => !t.done && t.due === today()).slice(0, 5).map(t => (
                   <div key={t.id} className="flex items-center gap-2 py-1.5">
                     <div className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{ background: { P1: '#c0392b', P2: '#b8860b', P3: '#2d5a3d', P4: '#c4c0ba' }[t.priority] }} />
+                      style={{ background: { P1: 'var(--c-danger)', P2: 'var(--c-warn)', P3: 'var(--c-accent)', P4: 'var(--c-faint)' }[t.priority] }} />
                     <span className="text-[13px] flex-1 truncate">{t.title}</span>
                     <span className="text-[10px] text-faint capitalize">{t.priority}</span>
                   </div>
@@ -696,7 +560,7 @@ export default function Home() {
                   const pct = g.target > 0 ? Math.round((g.current / g.target) * 100) : 0
                   return (
                     <div key={g.id} className="flex items-center gap-3">
-                      <Ring pct={pct} size={34} stroke={3} color="#2d5a3d">
+                      <Ring pct={pct} size={34} stroke={3} color="var(--c-accent)">
                         <span className="text-[8px] font-bold text-accent">{pct}%</span>
                       </Ring>
                       <div className="flex-1 min-w-0">
@@ -770,10 +634,10 @@ export default function Home() {
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
           {[
-            { label: 'Words written',    value: totalWords >= 1000 ? `${(totalWords / 1000).toFixed(1)}k` : totalWords.toLocaleString(), color: '#2d5a3d' },
-            { label: 'Chapters released', value: totalChapters, color: '#2563eb' },
-            { label: 'Writing streak',   value: writingStreak > 0 ? `🔥 ${writingStreak}d` : '—', color: '#b8860b' },
-            { label: 'Days written',     value: writingLogs.length, color: '#c0392b' },
+            { label: 'Words written',    value: totalWords >= 1000 ? `${(totalWords / 1000).toFixed(1)}k` : totalWords.toLocaleString(), color: 'var(--c-accent)' },
+            { label: 'Chapters released', value: totalChapters, color: '#3b82f6' },
+            { label: 'Writing streak',   value: writingStreak > 0 ? `🔥 ${writingStreak}d` : '—', color: 'var(--c-warn)' },
+            { label: 'Days written',     value: writingLogs.length, color: 'var(--c-danger)' },
           ].map(s => (
             <div key={s.label} className="bg-border-light rounded-[8px] px-4 py-3 text-center">
               <p className="font-serif text-[22px] leading-none mb-1" style={{ color: s.color }}>{s.value}</p>
@@ -843,9 +707,6 @@ export default function Home() {
           )}
         </div>
       </div>
-
-      {/* ── AI Coach ──────────────────────────────────────────── */}
-      <AiCoach buildContext={buildContext} />
 
       {/* Reading calendar */}
       <BookCalendar sessions={sessions} />
