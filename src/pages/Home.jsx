@@ -45,14 +45,14 @@ function fmtTime(mins) {
 
 function getMilestoneMsg(name, totalMin) {
   const h = totalMin / 60
-  if (h >= 1000) return { text: `1,000 hours of ${name}. You are the craft.`, icon: '🌟' }
-  if (h >= 500)  return { text: `500+ hours in ${name}. You're a professional now.`, icon: '🏅' }
-  if (h >= 100)  return { text: `100 hours of ${name}! Elite commitment.`, icon: '🏆' }
-  if (h >= 50)   return { text: `50 hours deep in ${name}. Malcolm Gladwell is watching.`, icon: '👀' }
-  if (h >= 25)   return { text: `25 hours of ${name}! That's real dedication.`, icon: '🔥' }
-  if (h >= 10)   return { text: `10 hours of ${name}. Mastery is being built.`, icon: '💪' }
-  if (h >= 5)    return { text: `5 hours of ${name}. The habit is taking root.`, icon: '🌱' }
-  if (h >= 1)    return { text: `First hour of ${name} logged! The journey begins.`, icon: '✨' }
+  if (h >= 1000) return { text: `1,000 hours of ${name}. You are the craft.`, icon: '★' }
+  if (h >= 500)  return { text: `500+ hours in ${name}. You're a professional now.`, icon: '◆' }
+  if (h >= 100)  return { text: `100 hours of ${name}! Elite commitment.`, icon: '▲' }
+  if (h >= 50)   return { text: `50 hours deep in ${name}. Malcolm Gladwell is watching.`, icon: '◉' }
+  if (h >= 25)   return { text: `25 hours of ${name}! That's real dedication.`, icon: '▸' }
+  if (h >= 10)   return { text: `10 hours of ${name}. Mastery is being built.`, icon: '►' }
+  if (h >= 5)    return { text: `5 hours of ${name}. The habit is taking root.`, icon: '◇' }
+  if (h >= 1)    return { text: `First hour of ${name} logged! The journey begins.`, icon: '→' }
   return null
 }
 
@@ -366,7 +366,7 @@ export default function Home() {
     <div className="p-6 lg:p-9 max-w-[1200px] pb-24" onClick={() => { setDashHabitPicker(null); setShowTimeFor(null) }}>
       {/* Greeting */}
       <div className="mb-7">
-        <h1 className="font-serif text-[28px] lg:text-[32px] leading-tight">{greeting} <span>👋</span></h1>
+        <h1 className="font-serif text-[28px] lg:text-[32px] leading-tight">{greeting}</h1>
         <p className="text-muted mt-1 text-[13px]">Here's where things stand today.</p>
       </div>
 
@@ -391,7 +391,7 @@ export default function Home() {
             <button onClick={() => navigate('/tasks')} className="text-[12px] text-accent hover:underline">See all →</button>
           </div>
           {tasks.filter(t => !t.done && t.due === today()).length === 0
-            ? <p className="text-[13px] text-faint py-4 text-center">Nothing due today 🎉</p>
+            ? <p className="text-[13px] text-faint py-4 text-center">Nothing due today — all clear!</p>
             : (
               <div className="flex flex-col gap-1.5">
                 {tasks.filter(t => !t.done && t.due === today()).slice(0, 5).map(t => (
@@ -461,7 +461,7 @@ export default function Home() {
                               {timeToday ? '⏱ edit' : '⏱ +time'}
                             </button>
                           )}
-                          {streak > 0 && <span className="text-[11px] text-accent font-medium">{streak}d 🔥</span>}
+                          {streak > 0 && <span className="text-[11px] text-accent font-medium">{streak}d streak</span>}
                         </div>
                       </div>
 
@@ -626,7 +626,7 @@ export default function Home() {
       <div className="card mb-5">
         <div className="flex items-center justify-between mb-5">
           <div>
-            <h3 className="font-medium text-[14px] flex items-center gap-2"><span>✍️</span> Writing Dashboard</h3>
+            <h3 className="font-medium text-[14px] flex items-center gap-2">Writing Dashboard</h3>
             <p className="text-[12px] text-muted mt-0.5 italic">{getWritingMessage(writingStreak, totalWords)}</p>
           </div>
           <button onClick={() => navigate('/habits')} className="text-[12px] text-accent hover:underline flex-shrink-0">Habits →</button>
@@ -636,7 +636,7 @@ export default function Home() {
           {[
             { label: 'Words written',    value: totalWords >= 1000 ? `${(totalWords / 1000).toFixed(1)}k` : totalWords.toLocaleString(), color: 'var(--c-accent)' },
             { label: 'Chapters released', value: totalChapters, color: '#3b82f6' },
-            { label: 'Writing streak',   value: writingStreak > 0 ? `🔥 ${writingStreak}d` : '—', color: 'var(--c-warn)' },
+            { label: 'Writing streak',   value: writingStreak > 0 ? `${writingStreak}d` : '—', color: 'var(--c-warn)' },
             { label: 'Days written',     value: writingLogs.length, color: 'var(--c-danger)' },
           ].map(s => (
             <div key={s.label} className="bg-border-light rounded-[8px] px-4 py-3 text-center">

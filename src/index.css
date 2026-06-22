@@ -7,40 +7,44 @@
    DESIGN TOKENS — Light mode
 ═══════════════════════════════════════════════════ */
 :root {
-  --c-bg:           #f7f6f3;
+  --c-bg:           #f7f8fc;
   --c-surface:      #ffffff;
-  --c-border:       #e6e3de;
-  --c-border-light: #eeece8;
-  --c-text:         #1a1916;
-  --c-muted:        #8a8680;
-  --c-faint:        #c4c0ba;
-  --c-accent:       #2d5a3d;
-  --c-accent-light: #eef4f0;
-  --c-accent-mid:   #c8dece;
-  --c-danger:       #c0392b;
-  --c-danger-light: #fdf0ee;
-  --c-warn:         #b8860b;
-  --c-warn-light:   #fdf8ec;
+  --c-surface-2:    #f0f2f8;
+  --c-border:       #d5d9e8;
+  --c-border-light: #eaecf5;
+  --c-text:         #16181f;
+  --c-muted:        #525d75;
+  --c-faint:        #b8c0d4;
+  --c-accent:       #1a7f37;
+  --c-accent-fg:    #ffffff;
+  --c-accent-light: #f0fdf4;
+  --c-accent-mid:   #bbf7d0;
+  --c-danger:       #dc2626;
+  --c-danger-light: #fef2f2;
+  --c-warn:         #d97706;
+  --c-warn-light:   #fffbeb;
 }
 
 /* ═══════════════════════════════════════════════════
    DESIGN TOKENS — Dark mode
 ═══════════════════════════════════════════════════ */
 .dark {
-  --c-bg:           #0f0e0d;
-  --c-surface:      #181614;
-  --c-border:       #2c2926;
-  --c-border-light: #221f1c;
-  --c-text:         #f0ede8;
-  --c-muted:        #7a7672;
-  --c-faint:        #3e3b38;
-  --c-accent:       #5aad72;
-  --c-accent-light: #142218;
-  --c-accent-mid:   #234a30;
-  --c-danger:       #e05c5c;
-  --c-danger-light: #2a1212;
-  --c-warn:         #d4a820;
-  --c-warn-light:   #271f08;
+  --c-bg:           #0b0d11;
+  --c-surface:      #111418;
+  --c-surface-2:    #191d24;
+  --c-border:       #252b36;
+  --c-border-light: #191d24;
+  --c-text:         #e2e8f5;
+  --c-muted:        #7e8ba8;
+  --c-faint:        #38404f;
+  --c-accent:       #34d058;
+  --c-accent-fg:    #040f08;
+  --c-accent-light: #061d10;
+  --c-accent-mid:   #0d3520;
+  --c-danger:       #f87171;
+  --c-danger-light: #1c0909;
+  --c-warn:         #fbbf24;
+  --c-warn-light:   #1a1306;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -84,23 +88,46 @@
     @apply inline-flex items-center gap-1.5 px-4 py-2 rounded-[8px]
            cursor-pointer font-sans text-[13px] font-medium
            select-none whitespace-nowrap;
-    transition: filter 0.12s, transform 0.1s, box-shadow 0.12s, background 0.12s, border-color 0.12s, color 0.12s;
+    transition: all 0.12s ease;
     border: none;
+    position: relative;
   }
-  .btn:active:not(:disabled) { transform: scale(0.96); }
-  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn:active:not(:disabled) { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  .btn-primary { background: var(--c-accent); color: #fff; }
-  .btn-primary:not(:disabled):hover { filter: brightness(1.1); }
+  .btn-primary {
+    background: var(--c-accent);
+    color: var(--c-accent-fg);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    box-shadow: 0 1px 3px rgba(0,0,0,.15), 0 0 0 1px color-mix(in srgb, var(--c-accent) 80%, transparent) inset;
+  }
+  .btn-primary:not(:disabled):hover {
+    filter: brightness(1.08);
+    box-shadow: 0 2px 10px color-mix(in srgb, var(--c-accent) 35%, transparent), 0 0 0 1px color-mix(in srgb, var(--c-accent) 80%, transparent) inset;
+  }
 
   .btn-ghost {
-    background: transparent; color: var(--c-muted);
-    border: 1.5px solid var(--c-border);
+    background: transparent;
+    color: var(--c-muted);
+    border: 1px solid var(--c-border);
   }
-  .btn-ghost:hover { border-color: var(--c-muted); color: var(--c-text); background: var(--c-border-light); }
+  .btn-ghost:hover {
+    background: var(--c-border-light);
+    border-color: color-mix(in srgb, var(--c-border) 70%, var(--c-muted) 30%);
+    color: var(--c-text);
+  }
 
-  .btn-danger { background: transparent; color: var(--c-danger); border: 1.5px solid var(--c-danger); }
-  .btn-danger:hover { background: var(--c-danger); color: #fff; }
+  .btn-danger {
+    background: transparent;
+    color: var(--c-danger);
+    border: 1px solid color-mix(in srgb, var(--c-danger) 40%, transparent);
+  }
+  .btn-danger:hover {
+    background: var(--c-danger);
+    color: #fff;
+    border-color: var(--c-danger);
+  }
 
   .btn-sm { @apply px-2.5 py-1.5 text-[12px] rounded-[6px]; }
   .btn-icon { @apply w-7 h-7 p-0 justify-center rounded-[6px]; }
@@ -109,16 +136,19 @@
   .form-input, .form-select, .form-textarea {
     @apply w-full px-3 py-2 rounded-[8px] font-sans text-[13.5px] outline-none;
     background: var(--c-bg); color: var(--c-text);
-    border: 1.5px solid var(--c-border);
+    border: 1px solid var(--c-border);
     transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
   }
   .form-input::placeholder, .form-textarea::placeholder { color: var(--c-faint); }
   .form-input:focus, .form-select:focus, .form-textarea:focus {
-    border-color: var(--c-accent); background: var(--c-surface); outline: none;
+    border-color: var(--c-accent);
+    background: var(--c-surface);
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 18%, transparent);
   }
   .form-select {
     appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8680' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237e8ba8' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
     background-repeat: no-repeat; background-position: right 10px center;
     padding-right: 30px;
   }
@@ -131,8 +161,12 @@
   /* ── Cards ── */
   .card {
     @apply rounded-card p-5;
-    background: var(--c-surface); border: 1px solid var(--c-border);
-    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 6px rgba(0,0,0,.04);
+  }
+  .dark .card {
+    box-shadow: 0 1px 3px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.03) inset;
   }
 
   /* ── Tags ── */

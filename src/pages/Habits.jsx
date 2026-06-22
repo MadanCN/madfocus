@@ -13,7 +13,23 @@ function rowToHabit(r) {
 }
 
 const BLANK_HABIT = { name:'', freq:'daily', trackType:'simple', variants:[], category:'' }
-const CATEGORY_ICONS = { Health:'💪', Mind:'🧠', Creativity:'🎨', Learning:'📚', Relationships:'❤️', Finance:'💰', Spirituality:'🙏', Work:'💼', Other:'⭐', '':'⭐' }
+
+const CATEGORY_LIST = ['Health','Mind','Creativity','Learning','Relationships','Finance','Spirituality','Work','Other']
+
+function CategoryIcon({ cat, className = 'w-4 h-4' }) {
+  const p = { className, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' }
+  switch(cat) {
+    case 'Health':        return <svg {...p}><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+    case 'Mind':          return <svg {...p}><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2z"/></svg>
+    case 'Creativity':    return <svg {...p}><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+    case 'Learning':      return <svg {...p}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+    case 'Relationships': return <svg {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    case 'Finance':       return <svg {...p}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+    case 'Spirituality':  return <svg {...p}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+    case 'Work':          return <svg {...p}><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+    default:              return <svg {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+  }
+}
 
 export default function Habits() {
   const toast = useToast()
@@ -189,7 +205,7 @@ export default function Habits() {
             {categoryOrder.map(cat => (
               <div key={cat}>
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="text-[16px]">{CATEGORY_ICONS[cat] || '⭐'}</span>
+                  <CategoryIcon cat={cat} className="w-3.5 h-3.5" style={{ color: 'var(--c-faint)' }} />
                   <h3 className="text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--c-faint)' }}>{cat}</h3>
                   <div className="flex-1 h-px" style={{ background: 'var(--c-border)' }}/>
                   <span className="text-[11px]" style={{ color: 'var(--c-faint)' }}>{habitsByCategory[cat].length}</span>
@@ -216,18 +232,20 @@ export default function Habits() {
                     {/* Header */}
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-[8px] bg-warn-light flex items-center justify-center flex-shrink-0 text-[18px]">✍️</div>
+                        <div className="w-9 h-9 rounded-[8px] flex items-center justify-center flex-shrink-0" style={{ background: 'var(--c-warn-light)' }}>
+                        <PenIcon className="w-4 h-4" style={{ color: 'var(--c-warn)' }} />
+                      </div>
                         <div>
                           <p className="font-medium text-[15px]">{h.name}</p>
-                          <p className="text-[11px] text-muted flex gap-2 mt-0.5">
+                          <p className="text-[11px] text-muted flex gap-2 mt-0.5 items-center">
                             <span>{h.freq}</span>
-                            <span className="bg-warn-light text-warn px-1.5 rounded text-[10px] uppercase tracking-wide">writing</span>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide font-medium" style={{ background: 'var(--c-warn-light)', color: 'var(--c-warn)' }}>writing</span>
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1.5 bg-warn-light text-warn px-3 py-1 rounded-full text-[12px] font-semibold">
-                          🔥 {writingStreak} day{writingStreak!==1?'s':''}
+                        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold" style={{ background: 'var(--c-warn-light)', color: 'var(--c-warn)' }}>
+                          <FlameIcon className="w-3.5 h-3.5" /> {writingStreak} day{writingStreak!==1?'s':''}
                         </div>
                         <button onClick={()=>setConfirm({id:h.id,name:h.name})} className="btn btn-ghost btn-sm btn-icon">
                           <TrashIcon className="w-3.5 h-3.5"/>
@@ -320,7 +338,7 @@ export default function Habits() {
                         <p className="text-[11px] text-muted flex gap-2 mt-0.5 items-center">
                           <span>{h.freq}</span>
                           <span className="bg-border-light px-1.5 rounded text-[10px] uppercase tracking-wide">{isVariant?'variants':'simple'}</span>
-                          {h.category && <span className="text-[10px]" style={{ color: 'var(--c-faint)' }}>{CATEGORY_ICONS[h.category]} {h.category}</span>}
+                          {h.category && <span className="inline-flex items-center gap-1 text-[10px]" style={{ color: 'var(--c-faint)' }}><CategoryIcon cat={h.category} className="w-3 h-3" /> {h.category}</span>}
                         </p>
                       </div>
                     </div>
@@ -331,8 +349,8 @@ export default function Habits() {
                           <span className="text-[11px] text-muted bg-border-light px-2.5 py-1 rounded-full">⏱ {fmtTime(totalMin)}</span>
                         ) : null
                       })()}
-                      <div className="flex items-center gap-1.5 bg-accent-light text-accent px-3 py-1 rounded-full text-[12px] font-semibold">
-                        <TrendIcon className="w-3 h-3"/>
+                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold" style={{ background: 'var(--c-accent-light)', color: 'var(--c-accent)' }}>
+                        <FlameIcon className="w-3.5 h-3.5"/>
                         {streak} day{streak!==1?'s':''}
                       </div>
                       <button onClick={()=>setConfirm({id:h.id,name:h.name})} className="btn btn-ghost btn-sm btn-icon">
@@ -474,7 +492,7 @@ export default function Habits() {
               <label className="form-label">Category</label>
               <select className="form-select" value={form.category} onChange={e=>setForm(p=>({...p,category:e.target.value}))}>
                 <option value="">— None —</option>
-                {Object.keys(CATEGORY_ICONS).filter(k=>k!=='').map(k=><option key={k} value={k}>{CATEGORY_ICONS[k]} {k}</option>)}
+                {CATEGORY_LIST.map(k=><option key={k} value={k}>{k}</option>)}
               </select>
             </div>
             <div>
@@ -496,7 +514,7 @@ export default function Habits() {
           </div>
           {form.trackType==='writing' && (
             <div className="bg-warn-light border border-warn/30 rounded-[8px] p-3">
-              <p className="text-[12px] text-warn font-medium">✍️ Writing habit</p>
+              <p className="text-[12px] font-medium flex items-center gap-1.5" style={{ color: 'var(--c-warn)' }}>Writing tracker</p>
               <p className="text-[11px] text-muted mt-0.5">Each day you'll log chapters released and words written. Stats appear on the Dashboard.</p>
             </div>
           )}
@@ -541,4 +559,5 @@ export default function Habits() {
 }
 
 function ClockIcon(p) { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> }
-function TrendIcon(p) { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg> }
+function FlameIcon(p) { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 3z"/></svg> }
+function PenIcon(p)   { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> }

@@ -19,11 +19,10 @@ import Kanban     from './pages/Kanban'
 import Login      from './pages/Login'
 import AICoach    from './pages/AICoach'
 
-// ── Notes overlay context (accessible from anywhere) ──
+// ── Notes overlay context ──
 const NotesCtx = createContext(null)
 export const useNotes = () => useContext(NotesCtx)
 
-// ── Protected app — only renders when logged in ──
 function ProtectedApp() {
   const { user, loading } = useAuth()
   const [notesOpen, setNotesOpen] = useState(false)
@@ -59,10 +58,7 @@ function ProtectedApp() {
         </Routes>
       </Shell>
 
-      {/* Floating overlay Notes (when opened via FAB) */}
       <NotesOverlay open={notesOpen} onClose={() => setNotesOpen(false)} />
-
-      {/* Persistent floating action button */}
       <FloatingFAB notesOpen={notesOpen} setNotesOpen={setNotesOpen} />
     </NotesCtx.Provider>
   )

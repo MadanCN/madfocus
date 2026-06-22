@@ -210,13 +210,13 @@ export default function NotesOverlay({ open, onClose, standalone }) {
 
           {/* Folder navigation */}
           <div className="px-2 py-2" style={{ borderBottom: '1px solid var(--c-border-light)' }}>
-            <FolderBtn label="All Notes" count={notes.filter(n => !n.archived).length} active={activeFolder === null} onClick={() => setActiveFolder(null)} icon="📄" />
+            <FolderBtn label="All Notes" count={notes.filter(n => !n.archived).length} active={activeFolder === null} onClick={() => setActiveFolder(null)} icon={<FileTextIcon className="w-3.5 h-3.5"/>} />
             {pinnedCount > 0 && (
-              <FolderBtn label="Pinned" count={pinnedCount} active={activeFolder === 'pinned'} onClick={() => setActiveFolder('pinned')} icon="📌" />
+              <FolderBtn label="Pinned" count={pinnedCount} active={activeFolder === 'pinned'} onClick={() => setActiveFolder('pinned')} icon={<PinIcon className="w-3.5 h-3.5"/>} />
             )}
             {folders.map(f => (
               <div key={f.id} className="group flex items-center">
-                <FolderBtn label={f.name} count={notes.filter(n => n.folder_id === f.id && !n.archived).length} active={activeFolder === f.id} onClick={() => setActiveFolder(f.id)} icon="📁" />
+                <FolderBtn label={f.name} count={notes.filter(n => n.folder_id === f.id && !n.archived).length} active={activeFolder === f.id} onClick={() => setActiveFolder(f.id)} icon={<FolderIcon className="w-3.5 h-3.5"/>} />
                 <button
                   onClick={() => deleteFolder(f.id)}
                   className="opacity-0 group-hover:opacity-100 p-1 rounded transition-all flex-shrink-0"
@@ -226,7 +226,7 @@ export default function NotesOverlay({ open, onClose, standalone }) {
               </div>
             ))}
             {archivedCount > 0 && (
-              <FolderBtn label="Archived" count={archivedCount} active={activeFolder === 'archived'} onClick={() => setActiveFolder('archived')} icon="🗄️" />
+              <FolderBtn label="Archived" count={archivedCount} active={activeFolder === 'archived'} onClick={() => setActiveFolder('archived')} icon={<ArchiveIcon className="w-3.5 h-3.5"/>} />
             )}
 
             {/* New folder */}
@@ -273,7 +273,7 @@ export default function NotesOverlay({ open, onClose, standalone }) {
                   }}
                 >
                   <div className="flex items-center gap-1.5 mb-0.5">
-                    {note.pinned && <span className="text-[10px]">📌</span>}
+                    {note.pinned && <PinIcon className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--c-accent)' }} />}
                     <div className="text-[13px] font-medium truncate" style={{ color: active === note.id ? 'var(--c-accent)' : 'var(--c-text)' }}>
                       {note.title || 'Untitled'}
                     </div>
@@ -289,7 +289,7 @@ export default function NotesOverlay({ open, onClose, standalone }) {
                   className="absolute right-2 top-3 opacity-0 group-hover:opacity-100 p-1 rounded-[5px] transition-all text-[14px]"
                   style={{ color: 'var(--c-muted)' }}
                 >
-                  ⋯
+                  <DotsIcon className="w-4 h-4" />
                 </button>
                 {noteMenu === note.id && (
                   <div
@@ -297,19 +297,19 @@ export default function NotesOverlay({ open, onClose, standalone }) {
                     style={{ background: 'var(--c-surface)', border: '1px solid var(--c-border)' }}
                     onClick={e => e.stopPropagation()}
                   >
-                    <MenuAction label={note.pinned ? 'Unpin' : 'Pin note'} icon="📌" onClick={() => togglePin(note.id)} />
-                    <MenuAction label={note.archived ? 'Unarchive' : 'Archive'} icon="🗄️" onClick={() => toggleArchive(note.id)} />
+                    <MenuAction label={note.pinned ? 'Unpin' : 'Pin note'} icon={<PinIcon className="w-3.5 h-3.5"/>} onClick={() => togglePin(note.id)} />
+                    <MenuAction label={note.archived ? 'Unarchive' : 'Archive'} icon={<ArchiveIcon className="w-3.5 h-3.5"/>} onClick={() => toggleArchive(note.id)} />
                     {folders.length > 0 && (
                       <>
                         <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'var(--c-faint)' }}>Move to</div>
-                        <MenuAction label="No folder" icon="📄" onClick={() => moveToFolder(note.id, null)} />
+                        <MenuAction label="No folder" icon={<FileTextIcon className="w-3.5 h-3.5"/>} onClick={() => moveToFolder(note.id, null)} />
                         {folders.map(f => (
-                          <MenuAction key={f.id} label={f.name} icon="📁" onClick={() => moveToFolder(note.id, f.id)} />
+                          <MenuAction key={f.id} label={f.name} icon={<FolderIcon className="w-3.5 h-3.5"/>} onClick={() => moveToFolder(note.id, f.id)} />
                         ))}
                       </>
                     )}
                     <div style={{ borderTop: '1px solid var(--c-border-light)', margin: '4px 0' }} />
-                    <MenuAction label="Delete" icon="🗑️" danger onClick={() => { setNoteMenu(null); setConfirmDelete(note) }} />
+                    <MenuAction label="Delete" icon={<TrashIcon className="w-3.5 h-3.5"/>} danger onClick={() => { setNoteMenu(null); setConfirmDelete(note) }} />
                   </div>
                 )}
               </div>
@@ -342,12 +342,12 @@ export default function NotesOverlay({ open, onClose, standalone }) {
               <ToolBtn onClick={() => execCmd('insertOrderedList')}   title="Numbered list">1. List</ToolBtn>
               <div className="ml-auto flex items-center gap-2">
                 {saving && <span className="text-[11px]" style={{ color: 'var(--c-accent)' }}>saving…</span>}
-                {activeNote.pinned && <span className="text-[12px]" title="Pinned">📌</span>}
+                {activeNote.pinned && <PinIcon className="w-3.5 h-3.5" title="Pinned" style={{ color: 'var(--c-accent)' }} />}
                 <ToolBtn onClick={() => setConfirmDelete(activeNote)} title="Delete note" className="text-danger hover:bg-danger-light">
                   <TrashIcon className="w-3.5 h-3.5" />
                 </ToolBtn>
                 {!standalone && (
-                  <ToolBtn onClick={onClose} title="Close">✕</ToolBtn>
+                  <ToolBtn onClick={onClose} title="Close"><XIcon className="w-3.5 h-3.5" /></ToolBtn>
                 )}
               </div>
             </div>
@@ -409,7 +409,7 @@ export default function NotesOverlay({ open, onClose, standalone }) {
               <PlusIcon /> New note
             </button>
             {!standalone && (
-              <button onClick={onClose} className="btn btn-ghost btn-sm absolute top-4 right-4">✕ Close</button>
+              <button onClick={onClose} className="btn btn-ghost btn-sm absolute top-4 right-4"><XIcon className="w-3.5 h-3.5"/> Close</button>
             )}
           </div>
         )}
@@ -446,13 +446,9 @@ function FolderBtn({ label, count, active, onClick, icon }) {
     <button
       onClick={onClick}
       className="w-full text-left px-2 py-1.5 rounded-[6px] text-[12.5px] flex items-center gap-2 transition-all"
-      style={{
-        background: active ? 'var(--c-accent-light)' : 'transparent',
-        color: active ? 'var(--c-accent)' : 'var(--c-muted)',
-        fontWeight: active ? 500 : 400,
-      }}
+      style={{ background: active ? 'var(--c-accent-light)' : 'transparent', color: active ? 'var(--c-accent)' : 'var(--c-muted)', fontWeight: active ? 500 : 400 }}
     >
-      <span className="text-[13px]">{icon}</span>
+      <span className="flex-shrink-0" style={{ color: active ? 'var(--c-accent)' : 'var(--c-faint)' }}>{icon}</span>
       <span className="flex-1 truncate">{label}</span>
       <span className="text-[10px]" style={{ color: active ? 'var(--c-accent)' : 'var(--c-faint)' }}>{count}</span>
     </button>
@@ -461,14 +457,13 @@ function FolderBtn({ label, count, active, onClick, icon }) {
 
 function MenuAction({ label, icon, onClick, danger }) {
   return (
-    <button
-      onClick={onClick}
+    <button onClick={onClick}
       className="w-full text-left px-3 py-1.5 text-[12px] flex items-center gap-2 transition-colors"
       style={{ color: danger ? 'var(--c-danger)' : 'var(--c-text)' }}
       onMouseEnter={e => { e.currentTarget.style.background = danger ? 'var(--c-danger-light)' : 'var(--c-border-light)' }}
-      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
-    >
-      <span>{icon}</span> {label}
+      onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+      <span className="flex-shrink-0" style={{ color: danger ? 'var(--c-danger)' : 'var(--c-faint)' }}>{icon}</span>
+      {label}
     </button>
   )
 }
@@ -513,6 +508,12 @@ function ToolBtn({ onClick, title, children, className = '' }) {
   )
 }
 
-function PlusIcon()       { return <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> }
-function TrashIcon(p)     { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg> }
-function NoteEmptyIcon(p) { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> }
+function PlusIcon()           { return <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> }
+function TrashIcon(p)         { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg> }
+function NoteEmptyIcon(p)     { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> }
+function PinIcon(p)           { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> }
+function FolderIcon(p)        { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> }
+function FileTextIcon(p)      { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> }
+function ArchiveIcon(p)       { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg> }
+function DotsIcon(p)          { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg> }
+function XIcon(p)             { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> }
