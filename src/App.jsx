@@ -17,6 +17,7 @@ import Pomodoro   from './pages/Pomodoro'
 import Library    from './pages/Library'
 import Kanban     from './pages/Kanban'
 import Login      from './pages/Login'
+import AICoach    from './pages/AICoach'
 
 // ── Notes overlay context (accessible from anywhere) ──
 const NotesCtx = createContext(null)
@@ -53,6 +54,7 @@ function ProtectedApp() {
           <Route path="/library/*" element={<Library />} />
           <Route path="/kanban"    element={<Kanban />} />
           <Route path="/notes"     element={<NotesOverlay standalone />} />
+          <Route path="/ai-coach"  element={<AICoach />} />
           <Route path="*"          element={<Navigate to="/" replace />} />
         </Routes>
       </Shell>

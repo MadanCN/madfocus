@@ -6,13 +6,14 @@ function uid() { return Date.now().toString(36) + Math.random().toString(36).sli
 function today() { return new Date().toISOString().slice(0,10) }
 
 function habitToRow(h) {
-  return { id:h.id, name:h.name, freq:h.freq, track_type:h.trackType, variants:h.variants||[], created_at:h.createdAt }
+  return { id:h.id, name:h.name, freq:h.freq, track_type:h.trackType, variants:h.variants||[], category:h.category||'', created_at:h.createdAt }
 }
 function rowToHabit(r) {
-  return { id:r.id, name:r.name, freq:r.freq, trackType:r.track_type, variants:r.variants||[], createdAt:r.created_at }
+  return { id:r.id, name:r.name, freq:r.freq, trackType:r.track_type, variants:r.variants||[], category:r.category||'', createdAt:r.created_at }
 }
 
-const BLANK_HABIT = { name:'', freq:'daily', trackType:'simple', variants:[] }
+const BLANK_HABIT = { name:'', freq:'daily', trackType:'simple', variants:[], category:'' }
+const CATEGORY_ICONS = { Health:'💪', Mind:'🧠', Creativity:'🎨', Learning:'📚', Relationships:'❤️', Finance:'💰', Spirituality:'🙏', Work:'💼', Other:'⭐', '':'⭐' }
 
 export default function Habits() {
   const toast = useToast()
@@ -160,6 +161,15 @@ export default function Habits() {
 
   if (loading) return <div className="flex items-center justify-center h-64 text-muted text-[13px]">Loading…</div>
 
+  // Group habits by category for display
+  const habitsByCategory = {}
+  habits.forEach(h => {
+    const cat = h.category || 'Uncategorised'
+    if (!habitsByCategory[cat]) habitsByCategory[cat] = []
+    habitsByCategory[cat].push(h)
+  })
+  const categoryOrder = Object.keys(habitsByCategory).sort((a, b) => a === 'Uncategorised' ? 1 : b === 'Uncategorised' ? -1 : a.localeCompare(b))
+
   return (
     <div className="p-9 max-w-[860px]">
       <div className="flex items-end justify-between mb-7">
@@ -175,8 +185,17 @@ export default function Habits() {
       {habits.length===0
         ? <Empty icon={<ClockIcon/>} title="No habits yet" sub="Track daily habits and build streaks"
             action={<button className="btn btn-primary" onClick={()=>setModal(true)}><PlusIcon className="w-3.5 h-3.5"/>Add first habit</button>}/>
-        : <div className="flex flex-col gap-4">
-            {habits.map(h => {
+        : <div className="flex flex-col gap-6">
+            {categoryOrder.map(cat => (
+              <div key={cat}>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-[16px]">{CATEGORY_ICONS[cat] || '⭐'}</span>
+                  <h3 className="text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--c-faint)' }}>{cat}</h3>
+                  <div className="flex-1 h-px" style={{ background: 'var(--c-border)' }}/>
+                  <span className="text-[11px]" style={{ color: 'var(--c-faint)' }}>{habitsByCategory[cat].length}</span>
+                </div>
+                <div className="flex flex-col gap-4">
+            {habitsByCategory[cat].map(h => {
               const isVariant = h.trackType==='variants'
               const isWriting = h.trackType==='writing'
 
@@ -298,9 +317,10 @@ export default function Habits() {
                       </div>
                       <div>
                         <p className="font-medium text-[15px]">{h.name}</p>
-                        <p className="text-[11px] text-muted flex gap-2 mt-0.5">
+                        <p className="text-[11px] text-muted flex gap-2 mt-0.5 items-center">
                           <span>{h.freq}</span>
                           <span className="bg-border-light px-1.5 rounded text-[10px] uppercase tracking-wide">{isVariant?'variants':'simple'}</span>
+                          {h.category && <span className="text-[10px]" style={{ color: 'var(--c-faint)' }}>{CATEGORY_ICONS[h.category]} {h.category}</span>}
                         </p>
                       </div>
                     </div>
@@ -435,6 +455,9 @@ export default function Habits() {
                 </div>
               )
             })}
+                </div>
+              </div>
+            ))}
           </div>
       }
 
@@ -448,6 +471,13 @@ export default function Habits() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
+              <label className="form-label">Category</label>
+              <select className="form-select" value={form.category} onChange={e=>setForm(p=>({...p,category:e.target.value}))}>
+                <option value="">— None —</option>
+                {Object.keys(CATEGORY_ICONS).filter(k=>k!=='').map(k=><option key={k} value={k}>{CATEGORY_ICONS[k]} {k}</option>)}
+              </select>
+            </div>
+            <div>
               <label className="form-label">Frequency</label>
               <select className="form-select" value={form.freq} onChange={e=>setForm(p=>({...p,freq:e.target.value}))}>
                 <option value="daily">Daily</option>
@@ -455,14 +485,14 @@ export default function Habits() {
                 <option value="weekly">Weekly</option>
               </select>
             </div>
-            <div>
-              <label className="form-label">Tracking type</label>
-              <select className="form-select" value={form.trackType} onChange={e=>setForm(p=>({...p,trackType:e.target.value,variants:[]}))}>
-                <option value="simple">Simple — mark done</option>
-                <option value="variants">Variants — choose type</option>
-                <option value="writing">Writing — chapters & words</option>
-              </select>
-            </div>
+          </div>
+          <div>
+            <label className="form-label">Tracking type</label>
+            <select className="form-select" value={form.trackType} onChange={e=>setForm(p=>({...p,trackType:e.target.value,variants:[]}))}>
+              <option value="simple">Simple — mark done</option>
+              <option value="variants">Variants — choose type</option>
+              <option value="writing">Writing — chapters & words</option>
+            </select>
           </div>
           {form.trackType==='writing' && (
             <div className="bg-warn-light border border-warn/30 rounded-[8px] p-3">

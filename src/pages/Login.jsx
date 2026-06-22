@@ -1,5 +1,14 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+
+// Floating orb positions (deterministic, not random)
+const ORBS = [
+  { w: 280, h: 280, top: '5%',  left: '10%', delay: '0s',   dur: '8s'  },
+  { w: 200, h: 200, top: '60%', left: '75%', delay: '2s',   dur: '11s' },
+  { w: 160, h: 160, top: '40%', left: '5%',  delay: '4s',   dur: '9s'  },
+  { w: 120, h: 120, top: '15%', left: '65%', delay: '1s',   dur: '13s' },
+  { w: 100, h: 100, top: '75%', left: '30%', delay: '3s',   dur: '10s' },
+]
 
 export default function Login() {
   const { signIn }              = useAuth()
@@ -8,6 +17,12 @@ export default function Login() {
   const [error, setError]       = useState('')
   const [loading, setLoading]   = useState(false)
   const [showPwd, setShowPwd]   = useState(false)
+  const [mounted, setMounted]   = useState(false)
+
+  useEffect(() => {
+    const t = setTimeout(() => setMounted(true), 50)
+    return () => clearTimeout(t)
+  }, [])
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -24,42 +39,86 @@ export default function Login() {
 
   return (
     <div
-      className="min-h-screen flex items-center justify-center p-4"
-      style={{ background: 'var(--c-bg)' }}
+      className="min-h-screen flex items-center justify-center p-4 overflow-hidden"
+      style={{ background: 'var(--c-bg)', position: 'relative' }}
     >
-      {/* Subtle background pattern */}
+      {/* Animated orbs */}
+      {ORBS.map((orb, i) => (
+        <div
+          key={i}
+          style={{
+            position: 'absolute',
+            width: orb.w,
+            height: orb.h,
+            top: orb.top,
+            left: orb.left,
+            borderRadius: '50%',
+            background: i % 2 === 0
+              ? 'radial-gradient(circle, color-mix(in srgb, var(--c-accent) 18%, transparent), transparent 70%)'
+              : 'radial-gradient(circle, color-mix(in srgb, var(--c-accent-mid) 12%, transparent), transparent 70%)',
+            animation: `orb-float ${orb.dur} ease-in-out infinite`,
+            animationDelay: orb.delay,
+            pointerEvents: 'none',
+            filter: 'blur(1px)',
+          }}
+        />
+      ))}
+
+      {/* Subtle grid overlay */}
       <div
-        className="absolute inset-0 pointer-events-none"
         style={{
-          backgroundImage: 'radial-gradient(circle at 20% 20%, var(--c-accent-light) 0%, transparent 60%), radial-gradient(circle at 80% 80%, var(--c-border-light) 0%, transparent 50%)',
-          opacity: 0.6,
+          position: 'absolute',
+          inset: 0,
+          backgroundImage: `
+            linear-gradient(var(--c-border-light) 1px, transparent 1px),
+            linear-gradient(90deg, var(--c-border-light) 1px, transparent 1px)
+          `,
+          backgroundSize: '48px 48px',
+          opacity: 0.35,
+          pointerEvents: 'none',
         }}
       />
 
+      {/* Login card */}
       <div
-        className="relative w-full max-w-[400px] overflow-hidden"
         style={{
+          position: 'relative',
+          width: '100%',
+          maxWidth: 420,
           background: 'var(--c-surface)',
           border: '1px solid var(--c-border)',
-          borderRadius: '20px',
-          boxShadow: '0 8px 40px rgba(0,0,0,0.10)',
+          borderRadius: 24,
+          boxShadow: '0 24px 80px rgba(0,0,0,0.28)',
+          overflow: 'hidden',
+          opacity: mounted ? 1 : 0,
+          transform: mounted ? 'translateY(0) scale(1)' : 'translateY(24px) scale(0.97)',
+          transition: 'opacity 0.5s ease, transform 0.5s cubic-bezier(0.34,1.56,0.64,1)',
         }}
       >
+        {/* Accent bar at top */}
+        <div style={{ height: 3, background: 'linear-gradient(90deg, var(--c-accent), var(--c-accent-mid), var(--c-accent))', backgroundSize: '200% 100%', animation: 'shimmer 3s linear infinite' }} />
+
         {/* Header */}
         <div
-          className="px-8 pt-10 pb-7 text-center"
+          className="px-8 pt-9 pb-7 text-center"
           style={{ borderBottom: '1px solid var(--c-border-light)' }}
         >
           <div
-            className="w-12 h-12 rounded-[14px] flex items-center justify-center mx-auto mb-4"
-            style={{ background: 'var(--c-accent-light)' }}
+            className="w-14 h-14 rounded-[18px] flex items-center justify-center mx-auto mb-5"
+            style={{
+              background: 'var(--c-accent-light)',
+              border: '1px solid var(--c-accent-mid)',
+              animation: 'logo-pulse 4s ease-in-out infinite',
+            }}
           >
-            <span className="font-serif text-[22px]" style={{ color: 'var(--c-accent)' }}>m</span>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--c-accent)" strokeWidth="2" strokeLinecap="round">
+              <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
+            </svg>
           </div>
-          <h1 className="font-serif text-[32px] tracking-tight leading-none mb-2" style={{ color: 'var(--c-text)' }}>
+          <h1 className="font-serif leading-none mb-2" style={{ fontSize: 36, color: 'var(--c-text)' }}>
             mad<span style={{ color: 'var(--c-accent)' }}>.</span>focus
           </h1>
-          <p className="text-[13px]" style={{ color: 'var(--c-muted)' }}>Stay sharp. Ship things.</p>
+          <p style={{ fontSize: 13, color: 'var(--c-muted)', letterSpacing: '0.03em' }}>Stay sharp. Ship things.</p>
         </div>
 
         {/* Form */}
@@ -114,7 +173,8 @@ export default function Login() {
 
           <button
             type="submit"
-            className="btn btn-primary w-full py-2.5 mt-1 text-[14px]"
+            className="btn btn-primary w-full py-2.5 mt-1"
+            style={{ fontSize: 14 }}
             disabled={loading}
           >
             {loading ? (
@@ -129,10 +189,10 @@ export default function Login() {
         {/* Footer */}
         <div
           className="px-8 pb-6 text-center"
-          style={{ borderTop: '1px solid var(--c-border-light)', paddingTop: '16px' }}
+          style={{ borderTop: '1px solid var(--c-border-light)', paddingTop: 16 }}
         >
-          <p className="text-[11.5px]" style={{ color: 'var(--c-faint)' }}>
-            Your productivity workspace
+          <p style={{ fontSize: 11.5, color: 'var(--c-faint)' }}>
+            Your intelligent productivity workspace
           </p>
         </div>
       </div>
