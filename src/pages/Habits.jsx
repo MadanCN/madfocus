@@ -1,563 +1,485 @@
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { Plus, Flame, Archive, ArchiveRestore, Trash2, PenLine, X, ChevronDown, Check } from 'lucide-react'
+import { Dialog, Sheet, Menu, Empty, PageLoader, SaveState, useToast, useConfirm } from '../components/ui'
+import { useBus, emit } from '../lib/bus'
+import { useAutosave } from '../lib/useAutosave'
+import { loadHabitData, createHabit, updateHabit, deleteHabit, setLog, saveWriting, CATEGORIES } from '../lib/habits'
 import { sb, dbRun } from '../lib/supabase'
-import { Modal, Confirm, Empty, useToast, PlusIcon, TrashIcon } from '../components/ui'
+import { today, addDays, parseYmd, fmtDay, relDay, fmtMinutes, fmtNum, streakFrom, plural } from '../lib/utils'
 
-function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6) }
-function today() { return new Date().toISOString().slice(0,10) }
+const FREQ = { daily: 'Every day', weekdays: 'Weekdays', weekly: 'Weekly' }
+const TYPES = { simple: 'Done or not', variants: 'Pick a variant', writing: 'Writing (words & chapters)' }
 
-function habitToRow(h) {
-  return { id:h.id, name:h.name, freq:h.freq, track_type:h.trackType, variants:h.variants||[], category:h.category||'', created_at:h.createdAt }
-}
-function rowToHabit(r) {
-  return { id:r.id, name:r.name, freq:r.freq, trackType:r.track_type, variants:r.variants||[], category:r.category||'', createdAt:r.created_at }
-}
-
-const BLANK_HABIT = { name:'', freq:'daily', trackType:'simple', variants:[], category:'' }
-
-const CATEGORY_LIST = ['Health','Mind','Creativity','Learning','Relationships','Finance','Spirituality','Work','Other']
-
-function CategoryIcon({ cat, className = 'w-4 h-4' }) {
-  const p = { className, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' }
-  switch(cat) {
-    case 'Health':        return <svg {...p}><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-    case 'Mind':          return <svg {...p}><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2z"/></svg>
-    case 'Creativity':    return <svg {...p}><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
-    case 'Learning':      return <svg {...p}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-    case 'Relationships': return <svg {...p}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-    case 'Finance':       return <svg {...p}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-    case 'Spirituality':  return <svg {...p}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-    case 'Work':          return <svg {...p}><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
-    default:              return <svg {...p}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-  }
+function bestStreak(dates) {
+  const s = [...new Set(dates)].sort()
+  let best = 0, cur = 0, prev = null
+  for (const d of s) { cur = prev && addDays(prev, 1) === d ? cur + 1 : 1; best = Math.max(best, cur); prev = d }
+  return best
 }
 
 export default function Habits() {
+  const [data, setData] = useState(null)
+  const [creating, setCreating] = useState(false)
+  const [openId, setOpenId] = useState(null)
+  const [showArchived, setShowArchived] = useState(false)
   const toast = useToast()
-  const [habits, setHabits]       = useState([])
-  const [logs, setLogs]           = useState({}) // { habitId: [{date, variant}] }
-  const [writingLogs, setWritingLogs] = useState([]) // [{id,date,chapters,word_count}]
-  const [writingForm, setWritingForm] = useState({ chapters:'', wordCount:'' })
-  const [savingWriting, setSavingWriting] = useState(false)
-  const [loading, setLoading]     = useState(true)
-  const [modal, setModal]         = useState(false)
-  const [form, setForm]           = useState(BLANK_HABIT)
-  const [variantInput, setVariantInput] = useState('')
-  const [confirm, setConfirm]     = useState(null)
-  const [variantPicker, setVariantPicker] = useState(null) // { hid, date, variants }
-  const [timeInputs, setTimeInputs] = useState({}) // { hid: minutesString }
-  const [showTimeFor, setShowTimeFor] = useState(null) // hid
+  const confirm = useConfirm()
 
-  useEffect(() => {
-    Promise.all([
-      sb.from('habits').select('*'),
-      sb.from('habit_logs').select('*'),
-      sb.from('writing_logs').select('*').order('date', { ascending: false }),
-    ]).then(([{ data: hData }, { data: lData }, { data: wData }]) => {
-      setHabits((hData||[]).map(rowToHabit))
-      const logMap = {}
-      ;(lData||[]).forEach(l => {
-        if (!logMap[l.habit_id]) logMap[l.habit_id] = []
-        logMap[l.habit_id].push({ date: l.date, variant: l.variant })
-      })
-      setLogs(logMap)
-      setWritingLogs(wData||[])
-      setLoading(false)
+  const reload = () => loadHabitData().then(setData).catch(() => { setData({ habits: [], logs: {}, writing: [] }); toast('Couldn’t load habits.', 'error') })
+  useEffect(() => { reload() }, [])
+  useBus('habits', reload)
+  useBus('writing', reload)
+
+  const d = today()
+  const week = Array.from({ length: 7 }, (_, i) => addDays(d, i - 6))
+
+  async function toggleDay(h, date, entry) {
+    const prev = (data.logs[h.id] || []).find(l => l.date === date) || null
+    setData(s => ({ ...s, logs: { ...s.logs, [h.id]: [...(s.logs[h.id] || []).filter(l => l.date !== date), ...(entry ? [{ date, ...entry }] : [])] } }))
+    try {
+      await setLog(h.id, date, entry)
+      if (!entry && prev) toast(`${h.name}: ${relDay(date).toLowerCase()} unmarked`, { action: { label: 'Undo', onClick: () => toggleDay(h, date, prev) } })
+    } catch { reload(); toast('Couldn’t save that.', 'error') }
+  }
+
+  async function archive(h, archived) {
+    setData(s => ({ ...s, habits: s.habits.map(x => x.id === h.id ? { ...x, archived } : x) }))
+    try {
+      await updateHabit(h.id, { archived })
+      toast(archived ? `${h.name} archived` : `${h.name} restored`, { action: { label: 'Undo', onClick: () => archive(h, !archived) } })
+    } catch { reload(); toast('Couldn’t update the habit.', 'error') }
+  }
+
+  async function remove(h) {
+    const days = (data.logs[h.id] || []).length
+    const ok = await confirm({
+      title: `Delete “${h.name}”?`,
+      body: days ? `This also deletes ${plural(days, 'logged day')}. Archive it instead if you might come back to it.` : 'This can’t be undone.',
+      confirmLabel: 'Delete habit',
     })
-  }, [])
-
-  async function saveWritingToday() {
-    const ch = parseInt(writingForm.chapters) || 0
-    const wc = parseInt(writingForm.wordCount) || 0
-    if (!ch && !wc) return
-    setSavingWriting(true)
-    const date = today()
-    const existing = writingLogs.find(l => l.date === date)
-    const entry = {
-      id: existing?.id || uid(),
-      date,
-      chapters: ch,
-      word_count: wc,
-      created_at: existing?.created_at || date,
-      updated_at: date,
-    }
-    try {
-      await dbRun('Save writing', () => sb.from('writing_logs').upsert(entry))
-      setWritingLogs(prev => [entry, ...prev.filter(l => l.date !== date)])
-      setWritingForm({ chapters:'', wordCount:'' })
-      toast('Writing logged ✓')
-    } catch { toast('Save failed','error') }
-    setSavingWriting(false)
+    if (!ok) return
+    setOpenId(null)
+    setData(s => ({ ...s, habits: s.habits.filter(x => x.id !== h.id) }))
+    try { await deleteHabit(h.id); toast('Habit deleted') } catch { reload(); toast('Couldn’t delete the habit.', 'error') }
   }
 
-  async function saveHabit() {
-    if (!form.name.trim()) return
-    if (form.trackType==='variants' && form.variants.length===0) { toast('Add at least one variant','warn'); return }
-    const h = { id:uid(), ...form, createdAt:today() }
-    try {
-      await dbRun('Save habit', () => sb.from('habits').upsert(habitToRow(h)))
-      setHabits(p => [...p, h])
-      setLogs(p => ({ ...p, [h.id]:[] }))
-      toast('Habit added ✓')
-      setModal(false); setForm(BLANK_HABIT); setVariantInput('')
-    } catch { toast('Save failed','error') }
-  }
-
-  async function doDelete() {
-    const id = confirm.id
-    setHabits(p => p.filter(h => h.id!==id))
-    setLogs(p => { const n={...p}; delete n[id]; return n })
-    setConfirm(null)
-    try { await dbRun('Delete', () => sb.from('habits').delete().eq('id',id)); toast('Habit deleted ✓') }
-    catch { toast('Delete failed','error') }
-  }
-
-  async function mark(hid, date, variant) {
-    const entries = logs[hid]||[]
-    const idx = entries.findIndex(e=>e.date===date)
-    let newEntries
-    if (idx>=0) {
-      const existDuration = entries[idx].duration_min || null
-      if (variant && entries[idx].variant===variant) {
-        newEntries = entries.filter((_,i)=>i!==idx)
-        await dbRun('Clear log', ()=>sb.from('habit_logs').delete().eq('habit_id',hid).eq('date',date))
-      } else if (variant) {
-        newEntries = entries.map((e,i)=>i===idx?{...e,variant}:e)
-        await dbRun('Update log', ()=>sb.from('habit_logs').upsert({habit_id:hid,date,variant,duration_min:existDuration}))
-      } else {
-        newEntries = entries.filter((_,i)=>i!==idx)
-        await dbRun('Clear log', ()=>sb.from('habit_logs').delete().eq('habit_id',hid).eq('date',date))
-      }
-    } else {
-      newEntries = [...entries, { date, variant:variant||null, duration_min:null }]
-      await dbRun('Add log', ()=>sb.from('habit_logs').upsert({habit_id:hid,date,variant:variant||null,duration_min:null}))
-    }
-    setLogs(p => ({ ...p, [hid]:newEntries }))
-  }
-
-  async function saveHabitTime(hid) {
-    const mins = parseInt(timeInputs[hid])
-    setShowTimeFor(null)
-    if (!mins || mins <= 0) return
-    const date = today()
-    const existing = (logs[hid]||[]).find(e=>e.date===date)
-    if (!existing) return
-    try {
-      await dbRun('Save time', ()=>sb.from('habit_logs').upsert({
-        habit_id:hid, date, variant:existing.variant||null, duration_min:mins
-      }))
-      setLogs(p => ({ ...p, [hid]: p[hid].map(e=>e.date===date?{...e,duration_min:mins}:e) }))
-      const h = Math.floor(mins/60), m = mins%60
-      const label = h===0?`${m}m`:m===0?`${h}h`:`${h}h ${m}m`
-      toast(`${label} logged ✓`)
-    } catch { toast('Save failed','error') }
-  }
-
-  function fmtTime(mins) {
-    if (!mins) return null
-    const h = Math.floor(mins/60), m = mins%60
-    return h===0?`${m}m`:m===0?`${h}h`:`${h}h ${m}m`
-  }
-
-  function getStreak(hid) {
-    const s = new Set((logs[hid]||[]).map(e=>e.date))
-    let streak = 0
-    const d = new Date(today())
-    // If today isn't logged yet, start counting from yesterday
-    if (!s.has(d.toISOString().slice(0,10))) d.setDate(d.getDate()-1)
-    while (s.has(d.toISOString().slice(0,10))) { streak++; d.setDate(d.getDate()-1) }
-    return streak
-  }
-  function isDone(hid,d) { return (logs[hid]||[]).some(e=>e.date===d) }
-  function getVariant(hid,d) { return (logs[hid]||[]).find(e=>e.date===d)?.variant||null }
-
-  // Build last 56 days
-  const days = Array.from({length:56},(_,i)=>{
-    const d=new Date(); d.setDate(d.getDate()-(55-i)); return d.toISOString().slice(0,10)
-  })
-
-  if (loading) return <div className="flex items-center justify-center h-64 text-muted text-[13px]">Loading…</div>
-
-  // Group habits by category for display
-  const habitsByCategory = {}
-  habits.forEach(h => {
-    const cat = h.category || 'Uncategorised'
-    if (!habitsByCategory[cat]) habitsByCategory[cat] = []
-    habitsByCategory[cat].push(h)
-  })
-  const categoryOrder = Object.keys(habitsByCategory).sort((a, b) => a === 'Uncategorised' ? 1 : b === 'Uncategorised' ? -1 : a.localeCompare(b))
+  if (!data) return <PageLoader />
+  const active = data.habits.filter(h => !h.archived)
+  const archived = data.habits.filter(h => h.archived)
+  const doneToday = active.filter(h => h.trackType === 'writing' ? data.writing.some(w => w.date === d) : (data.logs[h.id] || []).some(l => l.date === d)).length
+  const groups = groupByCategory(active)
+  const openHabit = data.habits.find(h => h.id === openId)
 
   return (
-    <div className="p-9 max-w-[860px]">
-      <div className="flex items-end justify-between mb-7">
-        <div>
-          <h1 className="page-title">Habits</h1>
-          <p className="page-sub">Build streaks, build yourself</p>
+    <div className="max-w-[920px] mx-auto px-4 md:px-8 pt-8 md:pt-12">
+      <header className="flex flex-wrap items-end gap-4 mb-8">
+        <div className="mr-auto">
+          <h1 className="h-page">Habits</h1>
+          <p className="text-[14px] text-muted mt-1">{active.length ? `${doneToday} of ${active.length} done today` : 'Small things, every day'}</p>
         </div>
-        <button className="btn btn-primary" onClick={()=>setModal(true)}>
-          <PlusIcon className="w-3.5 h-3.5"/> Add habit
-        </button>
-      </div>
+        <button onClick={() => setCreating(true)} className="btn btn-primary"><Plus size={16} /> New habit</button>
+      </header>
 
-      {habits.length===0
-        ? <Empty icon={<ClockIcon/>} title="No habits yet" sub="Track daily habits and build streaks"
-            action={<button className="btn btn-primary" onClick={()=>setModal(true)}><PlusIcon className="w-3.5 h-3.5"/>Add first habit</button>}/>
-        : <div className="flex flex-col gap-6">
-            {categoryOrder.map(cat => (
-              <div key={cat}>
-                <div className="flex items-center gap-2 mb-3">
-                  <CategoryIcon cat={cat} className="w-3.5 h-3.5" style={{ color: 'var(--c-faint)' }} />
-                  <h3 className="text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--c-faint)' }}>{cat}</h3>
-                  <div className="flex-1 h-px" style={{ background: 'var(--c-border)' }}/>
-                  <span className="text-[11px]" style={{ color: 'var(--c-faint)' }}>{habitsByCategory[cat].length}</span>
-                </div>
-                <div className="flex flex-col gap-4">
-            {habitsByCategory[cat].map(h => {
-              const isVariant = h.trackType==='variants'
-              const isWriting = h.trackType==='writing'
-
-              // Writing habit uses writing_logs for its data
-              if (isWriting) {
-                const writingDateSet = new Set(writingLogs.map(l => l.date))
-                const writingStreak = (() => {
-                  let s = 0; const d = new Date(today())
-                  if (!writingDateSet.has(today())) d.setDate(d.getDate()-1)
-                  while (writingDateSet.has(d.toISOString().slice(0,10))) { s++; d.setDate(d.getDate()-1) }
-                  return s
-                })()
-                const totalWords    = writingLogs.reduce((a,l)=>a+(l.word_count||0),0)
-                const totalChapters = writingLogs.reduce((a,l)=>a+(l.chapters||0),0)
-                const writingToday  = writingLogs.find(l=>l.date===today())
-                return (
-                  <div key={h.id} className="bg-surface border border-border rounded-card p-5">
-                    {/* Header */}
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-[8px] flex items-center justify-center flex-shrink-0" style={{ background: 'var(--c-warn-light)' }}>
-                        <PenIcon className="w-4 h-4" style={{ color: 'var(--c-warn)' }} />
-                      </div>
-                        <div>
-                          <p className="font-medium text-[15px]">{h.name}</p>
-                          <p className="text-[11px] text-muted flex gap-2 mt-0.5 items-center">
-                            <span>{h.freq}</span>
-                            <span className="px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide font-medium" style={{ background: 'var(--c-warn-light)', color: 'var(--c-warn)' }}>writing</span>
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold" style={{ background: 'var(--c-warn-light)', color: 'var(--c-warn)' }}>
-                          <FlameIcon className="w-3.5 h-3.5" /> {writingStreak} day{writingStreak!==1?'s':''}
-                        </div>
-                        <button onClick={()=>setConfirm({id:h.id,name:h.name})} className="btn btn-ghost btn-sm btn-icon">
-                          <TrashIcon className="w-3.5 h-3.5"/>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Stats row */}
-                    <div className="grid grid-cols-3 gap-3 mb-4">
-                      {[
-                        { label:'Total words', value: totalWords>=1000?`${(totalWords/1000).toFixed(1)}k`:totalWords.toLocaleString() },
-                        { label:'Total chapters', value: totalChapters },
-                        { label:'Writing days', value: writingLogs.length },
-                      ].map(s=>(
-                        <div key={s.label} className="bg-border-light rounded-[7px] px-3 py-2.5 text-center">
-                          <p className="font-serif text-[20px] text-accent">{s.value}</p>
-                          <p className="text-[10px] text-muted mt-0.5">{s.label}</p>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Heatmap (from writing_logs) */}
-                    <div className="flex gap-0.5 flex-wrap mb-4">
-                      {days.map(d => {
-                        const hasEntry = writingDateSet.has(d)
-                        const isToday  = d===today()
-                        const wl = writingLogs.find(l=>l.date===d)
-                        const label = new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short'})
-                          + (wl ? ` · ${wl.chapters}ch ${(wl.word_count||0).toLocaleString()}w` : '')
-                        return (
-                          <div key={d} className="relative group/cell">
-                            <div
-                              className={`w-[18px] h-[18px] rounded-[3px]
-                                ${hasEntry ? 'bg-warn' : 'bg-border-light'}
-                                ${isToday ? 'ring-2 ring-warn ring-offset-1' : ''}`}
-                            />
-                            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-text text-white text-[10px] px-2 py-1 rounded-[4px] whitespace-nowrap opacity-0 group-hover/cell:opacity-100 pointer-events-none z-10 transition-opacity">
-                              {label}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-
-                    {/* Log today */}
-                    {writingToday ? (
-                      <div className="flex items-center gap-3 bg-warn-light border border-warn/30 rounded-[8px] px-4 py-3">
-                        <span className="text-[13px] text-warn font-medium flex-1">
-                          ✓ {writingToday.chapters} chapter{writingToday.chapters!==1?'s':''} · {(writingToday.word_count||0).toLocaleString()} words logged today
-                        </span>
-                        <button onClick={()=>setWritingForm({chapters:String(writingToday.chapters),wordCount:String(writingToday.word_count)})}
-                          className="text-[11px] text-warn hover:underline flex-shrink-0">Edit</button>
-                      </div>
-                    ) : (
-                      <div className="flex flex-wrap gap-2 items-end">
-                        <div>
-                          <p className="text-[10px] text-muted mb-1">Chapters released</p>
-                          <input type="number" min="0" placeholder="0" className="form-input w-[100px] text-center"
-                            value={writingForm.chapters} onChange={e=>setWritingForm(p=>({...p,chapters:e.target.value}))}/>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-muted mb-1">Words written</p>
-                          <input type="number" min="0" placeholder="0" className="form-input w-[130px] text-center"
-                            value={writingForm.wordCount} onChange={e=>setWritingForm(p=>({...p,wordCount:e.target.value}))}
-                            onKeyDown={e=>e.key==='Enter'&&saveWritingToday()}/>
-                        </div>
-                        <button onClick={saveWritingToday} disabled={savingWriting||(!writingForm.chapters&&!writingForm.wordCount)}
-                          className="btn btn-primary disabled:opacity-40">
-                          {savingWriting?'Saving…':'Log today'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )
-              }
-
-              const streak = getStreak(h.id)
-              const doneToday = isDone(h.id, today())
-              const variantToday = getVariant(h.id, today())
-              return (
-                <div key={h.id} className="bg-surface border border-border rounded-card p-5">
-                  {/* Header */}
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-[8px] bg-accent-light flex items-center justify-center flex-shrink-0">
-                        <ClockIcon className="w-4 h-4 text-accent"/>
-                      </div>
-                      <div>
-                        <p className="font-medium text-[15px]">{h.name}</p>
-                        <p className="text-[11px] text-muted flex gap-2 mt-0.5 items-center">
-                          <span>{h.freq}</span>
-                          <span className="bg-border-light px-1.5 rounded text-[10px] uppercase tracking-wide">{isVariant?'variants':'simple'}</span>
-                          {h.category && <span className="inline-flex items-center gap-1 text-[10px]" style={{ color: 'var(--c-faint)' }}><CategoryIcon cat={h.category} className="w-3 h-3" /> {h.category}</span>}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {(() => {
-                        const totalMin = (logs[h.id]||[]).reduce((a,e)=>a+(e.duration_min||0),0)
-                        return totalMin > 0 ? (
-                          <span className="text-[11px] text-muted bg-border-light px-2.5 py-1 rounded-full">⏱ {fmtTime(totalMin)}</span>
-                        ) : null
-                      })()}
-                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold" style={{ background: 'var(--c-accent-light)', color: 'var(--c-accent)' }}>
-                        <FlameIcon className="w-3.5 h-3.5"/>
-                        {streak} day{streak!==1?'s':''}
-                      </div>
-                      <button onClick={()=>setConfirm({id:h.id,name:h.name})} className="btn btn-ghost btn-sm btn-icon">
-                        <TrashIcon className="w-3.5 h-3.5"/>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Heatmap */}
-                  <div className="flex gap-0.5 flex-wrap mb-3">
-                    {days.map(d => {
-                      const done=isDone(h.id,d); const isToday=d===today()
-                      const v=getVariant(h.id,d)
-                      const label=new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+(v?` · ${v}`:'')
-                      const pickerOpen = variantPicker?.hid===h.id && variantPicker?.date===d
-                      return (
-                        <div key={d} className="relative group/cell">
-                          <button
-                            onClick={()=> isVariant
-                              ? setVariantPicker(pickerOpen ? null : {hid:h.id, date:d, variants:h.variants})
-                              : mark(h.id,d)}
-                            className={`w-[18px] h-[18px] rounded-[3px] transition-all hover:scale-125
-                              ${done ? 'bg-accent' : 'bg-border-light'}
-                              ${isToday ? 'ring-2 ring-accent ring-offset-1' : ''}
-                              ${pickerOpen ? 'ring-2 ring-warn ring-offset-1' : ''}`}
-                          />
-                          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-text text-white text-[10px] px-2 py-1 rounded-[4px] whitespace-nowrap opacity-0 group-hover/cell:opacity-100 pointer-events-none z-10 transition-opacity">
-                            {label}
-                          </div>
-                          {pickerOpen && (
-                            <div className="absolute bottom-7 left-1/2 -translate-x-1/2 z-20 bg-surface border border-border rounded-[8px] shadow-md p-2 flex flex-col gap-1 min-w-[110px]">
-                              <p className="text-[10px] text-muted px-1 pb-1 border-b border-border-light whitespace-nowrap">{label}</p>
-                              {h.variants.map(vv=>(
-                                <button key={vv} onClick={()=>{ mark(h.id,d,vv); setVariantPicker(null) }}
-                                  className={`text-[11px] px-2 py-1 rounded-[5px] text-left transition-colors
-                                    ${v===vv ? 'bg-accent text-white' : 'hover:bg-accent-light hover:text-accent text-muted'}`}>
-                                  {vv}
-                                </button>
-                              ))}
-                              {done && (
-                                <button onClick={()=>{ mark(h.id,d); setVariantPicker(null) }}
-                                  className="text-[11px] px-2 py-1 rounded-[5px] text-left text-danger hover:bg-danger-light transition-colors mt-0.5 border-t border-border-light pt-1">
-                                  Clear
-                                </button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-
-                  {/* Today action */}
-                  {isVariant ? (
-                    <div>
-                      <div className="flex gap-2 flex-wrap mb-2">
-                        {h.variants.map(v => (
-                          <button key={v} onClick={()=>mark(h.id,today(),v)}
-                            className={`px-3 py-1.5 rounded-full border text-[12px] transition-all
-                              ${variantToday===v ? 'bg-accent border-accent text-white font-medium' : 'border-border text-muted hover:border-accent hover:text-accent hover:bg-accent-light'}`}>
-                            {v}
-                          </button>
-                        ))}
-                      </div>
-                      {doneToday
-                        ? <button onClick={()=>mark(h.id,today())}
-                            className="w-full py-2 border border-solid border-accent bg-accent-light text-accent rounded-[7px] text-[13px] font-medium flex items-center justify-center gap-2">
-                            ✓ {variantToday||'Done'} today — tap to clear
-                          </button>
-                        : <p className="text-[12px] text-faint text-center py-1">Select a variant above to log today</p>
-                      }
-                    </div>
-                  ) : (
-                    <button onClick={()=>mark(h.id,today())}
-                      className={`w-full py-2 rounded-[7px] text-[13px] flex items-center justify-center gap-2 transition-all
-                        ${doneToday
-                          ? 'border border-solid border-accent bg-accent-light text-accent font-medium'
-                          : 'border border-dashed border-border text-muted hover:border-accent hover:text-accent hover:bg-accent-light'}`}>
-                      {doneToday ? '✓ Done today — tap to undo' : '+ Mark today as done'}
-                    </button>
-                  )}
-
-                  {/* Time tracking */}
-                  {doneToday && (() => {
-                    const todayEntry = (logs[h.id]||[]).find(e=>e.date===today())
-                    const loggedMin  = todayEntry?.duration_min || 0
-                    const totalMin   = (logs[h.id]||[]).reduce((a,e)=>a+(e.duration_min||0),0)
-                    const timeOpen   = showTimeFor===h.id
-                    return (
-                      <div className="mt-2 pt-2 border-t border-border-light">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {loggedMin > 0
-                            ? <span className="text-[12px] text-muted">⏱ <span className="text-accent font-medium">{fmtTime(loggedMin)}</span> today
-                                {totalMin > 0 && <span className="text-faint ml-1">· {fmtTime(totalMin)} total</span>}
-                              </span>
-                            : <span className="text-[11px] text-faint">How long did you work on this?</span>
-                          }
-                          <button
-                            onClick={()=>{ setShowTimeFor(timeOpen?null:h.id); setTimeInputs(p=>({...p,[h.id]:loggedMin?String(loggedMin):''})) }}
-                            className="text-[11px] text-accent hover:underline">
-                            {loggedMin?'Edit time':'+ Log time'}
-                          </button>
-                        </div>
-                        {timeOpen && (
-                          <div className="flex items-center gap-2 mt-2">
-                            <input autoFocus type="number" min="1" placeholder="minutes"
-                              className="form-input w-[100px] text-center text-[12px]"
-                              value={timeInputs[h.id]||''}
-                              onChange={e=>setTimeInputs(p=>({...p,[h.id]:e.target.value}))}
-                              onKeyDown={e=>e.key==='Enter'&&saveHabitTime(h.id)}
-                            />
-                            <span className="text-[11px] text-muted">min</span>
-                            <button onClick={()=>saveHabitTime(h.id)} className="btn btn-primary btn-sm px-3 py-1 text-[12px]">Save</button>
-                            <button onClick={()=>setShowTimeFor(null)} className="text-[12px] text-muted hover:text-text">✕</button>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })()}
-                </div>
-              )
-            })}
-                </div>
-              </div>
+      {active.length === 0 ? (
+        <Empty icon={Flame} title="No habits yet" body="Start with one you can do in two minutes. You can log time against it later."
+          action={<button onClick={() => setCreating(true)} className="btn btn-primary"><Plus size={16} /> New habit</button>} />
+      ) : (
+        <div className="panel overflow-x-auto">
+          <div className="min-w-[520px] pb-1">
+            <div className="grid grid-cols-[minmax(0,1fr)_repeat(7,40px)_44px] items-end px-3 pt-3 pb-2 text-[11.5px] text-faint sticky top-0">
+              <span />
+              {week.map(day => (
+                <span key={day} className={`text-center ${day === d ? 'text-ink font-semibold' : ''}`}>
+                  {parseYmd(day).toLocaleDateString('en-GB', { weekday: 'narrow' })}<br />
+                  <span className="tnum">{parseYmd(day).getDate()}</span>
+                </span>
+              ))}
+              <span />
+            </div>
+            {groups.map(([cat, list]) => (
+              <section key={cat || 'none'} aria-label={cat || 'Habits'}>
+                {groups.length > 1 && <h2 className="px-3 pt-4 pb-1.5 text-[12.5px] font-semibold text-muted border-t border-line-soft">{cat || 'Other'}</h2>}
+                {list.map(h => (
+                  <HabitRow key={h.id} h={h} week={week} logs={data.logs[h.id] || []} writing={data.writing}
+                    onToggle={toggleDay} onOpen={() => setOpenId(h.id)}
+                    onArchive={() => archive(h, true)} onDelete={() => remove(h)} />
+                ))}
+              </section>
             ))}
           </div>
-      }
-
-      {/* Add habit modal */}
-      <Modal open={modal} onClose={()=>{setModal(false);setForm(BLANK_HABIT);setVariantInput('')}} title="New habit">
-        <div className="space-y-4">
-          <div>
-            <label className="form-label">Habit name *</label>
-            <input className="form-input" placeholder="e.g. Morning run, Read 20 pages…"
-              value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} autoFocus />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="form-label">Category</label>
-              <select className="form-select" value={form.category} onChange={e=>setForm(p=>({...p,category:e.target.value}))}>
-                <option value="">— None —</option>
-                {CATEGORY_LIST.map(k=><option key={k} value={k}>{k}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="form-label">Frequency</label>
-              <select className="form-select" value={form.freq} onChange={e=>setForm(p=>({...p,freq:e.target.value}))}>
-                <option value="daily">Daily</option>
-                <option value="weekdays">Weekdays only</option>
-                <option value="weekly">Weekly</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="form-label">Tracking type</label>
-            <select className="form-select" value={form.trackType} onChange={e=>setForm(p=>({...p,trackType:e.target.value,variants:[]}))}>
-              <option value="simple">Simple — mark done</option>
-              <option value="variants">Variants — choose type</option>
-              <option value="writing">Writing — chapters & words</option>
-            </select>
-          </div>
-          {form.trackType==='writing' && (
-            <div className="bg-warn-light border border-warn/30 rounded-[8px] p-3">
-              <p className="text-[12px] font-medium flex items-center gap-1.5" style={{ color: 'var(--c-warn)' }}>Writing tracker</p>
-              <p className="text-[11px] text-muted mt-0.5">Each day you'll log chapters released and words written. Stats appear on the Dashboard.</p>
-            </div>
-          )}
-          {form.trackType==='variants' && (
-            <div>
-              <label className="form-label">Variants</label>
-              <div className="flex gap-2 mb-2">
-                <input className="form-input flex-1" placeholder="e.g. Push, Pull, Legs…"
-                  value={variantInput} onChange={e=>setVariantInput(e.target.value)}
-                  onKeyDown={e=>{
-                    if (e.key==='Enter'&&variantInput.trim()) {
-                      setForm(p=>({...p,variants:[...p.variants,variantInput.trim()]}))
-                      setVariantInput('')
-                    }
-                  }}/>
-                <button className="btn btn-ghost btn-sm" onClick={()=>{
-                  if (variantInput.trim()) { setForm(p=>({...p,variants:[...p.variants,variantInput.trim()]})); setVariantInput('') }
-                }}>Add</button>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {form.variants.map(v=>(
-                  <span key={v} className="inline-flex items-center gap-1 bg-border-light text-muted text-[12px] px-2.5 py-1 rounded-full">
-                    {v}
-                    <button onClick={()=>setForm(p=>({...p,variants:p.variants.filter(x=>x!==v)}))} className="text-faint hover:text-danger">×</button>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          <div className="flex gap-2 justify-end pt-2">
-            <button className="btn btn-ghost" onClick={()=>{setModal(false);setForm(BLANK_HABIT);setVariantInput('')}}>Cancel</button>
-            <button className="btn btn-primary" onClick={saveHabit}>Save habit</button>
-          </div>
         </div>
-      </Modal>
+      )}
 
-      <Confirm open={!!confirm} title="Delete habit?"
-        body={`"${confirm?.name}" and all tracking history will be permanently removed.`}
-        onOk={doDelete} onCancel={()=>setConfirm(null)}/>
+      {archived.length > 0 && (
+        <section className="mt-10">
+          <button onClick={() => setShowArchived(s => !s)} aria-expanded={showArchived} className="flex items-center gap-1.5 px-1 text-[14px] text-muted hover:text-ink">
+            <ChevronDown size={16} style={{ transform: showArchived ? 'rotate(180deg)' : 'none', transition: 'transform 200ms var(--ease-out)' }} />
+            Archived <span className="text-faint tnum">{archived.length}</span>
+          </button>
+          {showArchived && (
+            <div className="panel p-1.5 mt-2">
+              {archived.map(h => (
+                <div key={h.id} className="row">
+                  <span className="flex-1 text-[14px] text-muted">{h.name}</span>
+                  <button onClick={() => archive(h, false)} className="btn btn-quiet btn-sm"><ArchiveRestore size={15} /> Restore</button>
+                  <button onClick={() => remove(h)} className="btn btn-quiet btn-sm btn-icon" aria-label={`Delete ${h.name}`}><Trash2 size={15} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      <CreateHabit open={creating} onClose={() => setCreating(false)}
+        onCreated={h => { setData(s => ({ ...s, habits: [...s.habits, h] })); setCreating(false); setOpenId(h.trackType === 'variants' ? h.id : null) }} />
+
+      <HabitSheet habit={openHabit} logs={openHabit ? data.logs[openHabit.id] || [] : []} writing={data.writing}
+        onClose={() => setOpenId(null)} setData={setData} onToggle={toggleDay}
+        onArchive={() => { archive(openHabit, !openHabit.archived); setOpenId(null) }} onDelete={() => remove(openHabit)} />
     </div>
   )
 }
 
-function ClockIcon(p) { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> }
-function FlameIcon(p) { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 3z"/></svg> }
-function PenIcon(p)   { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg> }
+function groupByCategory(list) {
+  const map = new Map()
+  list.forEach(h => { const k = h.category || ''; if (!map.has(k)) map.set(k, []); map.get(k).push(h) })
+  return [...map.entries()].sort(([a], [b]) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)))
+}
+
+// ── One habit row with a 7-day strip ───────────────────────────
+function HabitRow({ h, week, logs, writing, onToggle, onOpen, onArchive, onDelete }) {
+  const isWriting = h.trackType === 'writing'
+  const dates = isWriting ? writing.map(w => w.date) : logs.map(l => l.date)
+  const streak = streakFrom(dates)
+  const [pick, setPick] = useState(null)
+
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_repeat(7,40px)_44px] items-center px-3 min-h-[52px] border-t border-line-soft">
+      <button onClick={onOpen} className="text-left min-w-0 pr-3 py-2 group">
+        <span className="block text-[14.5px] font-medium truncate group-hover:underline underline-offset-2">{h.name}</span>
+        <span className="block text-[12px] text-faint">
+          {streak > 0 ? <span className="inline-flex items-center gap-1"><Flame size={12} style={{ color: 'var(--m-habits)' }} />{streak}-day streak</span> : FREQ[h.freq] || 'Every day'}
+        </span>
+      </button>
+      {week.map(day => {
+        const entry = isWriting ? null : logs.find(l => l.date === day)
+        const w = isWriting ? writing.find(x => x.date === day) : null
+        const done = isWriting ? !!w : !!entry
+        const isVar = h.trackType === 'variants' && h.variants.length > 0
+        const label = `${h.name}, ${fmtDay(day, { weekday: 'long', day: 'numeric', month: 'short' })}: ${done ? (entry?.variant || (w ? `${fmtNum(w.word_count)} words` : 'done')) : 'not done'}`
+        return (
+          <div key={day} className="relative flex justify-center">
+            <button aria-label={label} aria-pressed={done}
+              onClick={() => isWriting ? onOpen() : isVar ? setPick(p => p === day ? null : day) : onToggle(h, day, done ? null : { variant: null, duration_min: null })}
+              className="w-[30px] h-[30px] rounded-full flex items-center justify-center transition-[background-color,box-shadow,transform] duration-150 active:scale-90"
+              style={{
+                background: done ? 'var(--m-habits)' : 'transparent',
+                boxShadow: done ? 'none' : `inset 0 0 0 1.5px ${day === today() ? 'var(--c-faint)' : 'var(--c-line)'}`,
+                color: '#fff',
+              }}>
+              {done && (entry?.variant ? <span className="text-[10px] font-bold">{entry.variant.slice(0, 1).toUpperCase()}</span> : <Check size={14} strokeWidth={3} />)}
+            </button>
+            {pick === day && (
+              <VariantPop variants={h.variants} current={entry?.variant} onClose={() => setPick(null)}
+                onPick={v => { onToggle(h, day, v === null ? null : { variant: v, duration_min: entry?.duration_min || null }); setPick(null) }} />
+            )}
+          </div>
+        )
+      })}
+      <div className="flex justify-end">
+        <Menu items={[
+          { label: 'Edit', icon: <PenLine size={15} />, onClick: onOpen },
+          { label: 'Archive', icon: <Archive size={15} />, onClick: onArchive },
+          { divider: true },
+          { label: 'Delete', icon: <Trash2 size={15} />, danger: true, onClick: onDelete },
+        ]} />
+      </div>
+    </div>
+  )
+}
+
+function VariantPop({ variants, current, onPick, onClose }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    const h = e => { if (!ref.current?.contains(e.target)) onClose() }
+    const k = e => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('pointerdown', h); document.addEventListener('keydown', k)
+    ref.current?.querySelector('button')?.focus()
+    return () => { document.removeEventListener('pointerdown', h); document.removeEventListener('keydown', k) }
+  }, [])
+  return (
+    <div ref={ref} role="menu" className="absolute top-[calc(100%+4px)] z-30 min-w-[150px] bg-surface rounded-[12px] shadow-pop py-1.5">
+      {variants.map(v => (
+        <button key={v} role="menuitem" onClick={() => onPick(v)} className="w-full flex items-center gap-2 px-3 h-9 text-[13.5px] text-left hover:bg-sunken">
+          <span className="flex-1">{v}</span>{current === v && <Check size={14} className="text-accent" />}
+        </button>
+      ))}
+      {current && <>
+        <div className="my-1 h-px bg-line-soft" />
+        <button role="menuitem" onClick={() => onPick(null)} className="w-full px-3 h-9 text-[13.5px] text-left hover:bg-sunken text-muted">Clear day</button>
+      </>}
+    </div>
+  )
+}
+
+// ── Create ─────────────────────────────────────────────────────
+function CreateHabit({ open, onClose, onCreated }) {
+  const [form, setForm] = useState({ name: '', trackType: 'simple', category: '', freq: 'daily', variants: [] })
+  const [variant, setVariant] = useState('')
+  const [busy, setBusy] = useState(false)
+  const toast = useToast()
+  useEffect(() => { if (open) { setForm({ name: '', trackType: 'simple', category: '', freq: 'daily', variants: [] }); setVariant('') } }, [open])
+  const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  async function submit(e) {
+    e.preventDefault()
+    if (!form.name.trim() || busy) return
+    setBusy(true)
+    const variants = variant.trim() ? [...form.variants, variant.trim()] : form.variants
+    try { const h = await createHabit({ ...form, variants }); toast(`“${h.name}” added`); onCreated(h) }
+    catch { toast('Couldn’t create the habit.', 'error') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} title="New habit" width={480}>
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        <div>
+          <label className="label" htmlFor="hn">Name</label>
+          <input id="hn" className="input" value={form.name} onChange={e => f('name', e.target.value)} placeholder="Morning walk, read 20 pages…" data-autofocus />
+        </div>
+        <div>
+          <span className="label">How do you track it?</span>
+          <div className="flex flex-col gap-1.5">
+            {Object.entries(TYPES).map(([k, v]) => (
+              <label key={k} className="flex items-center gap-3 h-10 px-3 rounded-[10px] cursor-pointer"
+                style={{ boxShadow: `inset 0 0 0 ${form.trackType === k ? '1.5px var(--c-accent)' : '1px var(--c-line)'}`, background: form.trackType === k ? 'var(--c-accent-soft)' : undefined }}>
+                <input type="radio" name="tt" value={k} checked={form.trackType === k} onChange={() => f('trackType', k)} className="accent-[var(--c-accent)]" />
+                <span className="text-[14px]">{v}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        {form.trackType === 'variants' && (
+          <div>
+            <span className="label">Variants</span>
+            <VariantEditor variants={form.variants} onChange={v => f('variants', v)} value={variant} setValue={setVariant} />
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label" htmlFor="hc">Category</label>
+            <select id="hc" className="input" value={form.category} onChange={e => f('category', e.target.value)}>
+              <option value="">None</option>
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="hf">How often</label>
+            <select id="hf" className="input" value={form.freq} onChange={e => f('freq', e.target.value)}>
+              {Object.entries(FREQ).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="btn btn-outline">Cancel</button>
+          <button type="submit" disabled={!form.name.trim() || busy} className="btn btn-primary">Add habit</button>
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
+function VariantEditor({ variants, onChange, value, setValue, onRemove }) {
+  function add() { const v = value.trim(); if (v && !variants.includes(v)) onChange([...variants, v]); setValue('') }
+  return (
+    <div>
+      <div className="flex gap-2">
+        <input className="input" value={value} onChange={e => setValue(e.target.value)} placeholder="Push, Pull, Legs…"
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add() } }} aria-label="New variant" />
+        <button type="button" onClick={add} className="btn btn-outline">Add</button>
+      </div>
+      {variants.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {variants.map(v => (
+            <span key={v} className="chip h-7 pr-1">
+              {v}
+              <button type="button" aria-label={`Remove ${v}`} onClick={() => onRemove ? onRemove(v) : onChange(variants.filter(x => x !== v))}
+                className="w-5 h-5 rounded-full flex items-center justify-center hover:bg-line"><X size={12} /></button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Detail / edit sheet (autosaves) ────────────────────────────
+function HabitSheet({ habit, logs, writing, onClose, setData, onToggle, onArchive, onDelete }) {
+  const [h, setH] = useState(habit)
+  const [variant, setVariant] = useState('')
+  const confirm = useConfirm()
+  const { queue, flush, status, retry } = useAutosave((id, p) => updateHabit(id, p), 600)
+  useEffect(() => { if (habit && habit.id !== h?.id) setH(habit); if (!habit) setH(null) }, [habit])
+  useEffect(() => { if (habit) setH(x => x && x.id === habit.id ? { ...x, archived: habit.archived } : habit) }, [habit?.archived])
+
+  function set(patch) {
+    setH(x => ({ ...x, ...patch }))
+    setData(s => ({ ...s, habits: s.habits.map(x => x.id === h.id ? { ...x, ...patch } : x) }))
+    queue(h.id, patch)
+  }
+
+  async function removeVariant(v) {
+    const used = logs.filter(l => l.variant === v).length
+    if (used) {
+      const ok = await confirm({ title: `Remove “${v}”?`, body: `It’s on ${plural(used, 'logged day')}. Those days keep their label; it just won’t be offered again.`, confirmLabel: 'Remove variant' })
+      if (!ok) return
+    }
+    set({ variants: h.variants.filter(x => x !== v) })
+  }
+
+  const isWriting = h?.trackType === 'writing'
+  const dates = h ? (isWriting ? writing.map(w => w.date) : logs.map(l => l.date)) : []
+  const totalMin = logs.reduce((a, l) => a + (l.duration_min || 0), 0)
+
+  return (
+    <Sheet open={!!habit} onClose={async () => { await flush(); onClose() }} label="Habit details"
+      title={<SaveState status={status} onRetry={retry} />}
+      footer={h && (
+        <div className="flex gap-2">
+          <button onClick={onArchive} className="btn btn-outline btn-sm">{h.archived ? <><ArchiveRestore size={15} /> Restore</> : <><Archive size={15} /> Archive</>}</button>
+          <button onClick={onDelete} className="btn btn-quiet btn-sm text-danger ml-auto"><Trash2 size={15} /> Delete</button>
+        </div>
+      )}>
+      {h && (
+        <div className="flex flex-col gap-7">
+          <input value={h.name} onChange={e => set({ name: e.target.value })} aria-label="Habit name"
+            className="inline-edit text-[22px] font-semibold tracking-[-0.01em]" placeholder="Habit name" />
+
+          <div className="grid grid-cols-4 gap-2 text-center">
+            {[
+              ['Streak', streakFrom(dates) + 'd'],
+              ['Best', bestStreak(dates) + 'd'],
+              [isWriting ? 'Days written' : 'Days done', dates.length],
+              isWriting ? ['Words', fmtNum(writing.reduce((a, w) => a + (w.word_count || 0), 0))] : ['Time', totalMin ? fmtMinutes(totalMin) : '—'],
+            ].map(([l, v]) => (
+              <div key={l} className="rounded-[12px] bg-sunken py-3">
+                <p className="text-[18px] font-semibold tnum">{v}</p>
+                <p className="text-[12px] text-muted">{l}</p>
+              </div>
+            ))}
+          </div>
+
+          {isWriting ? <WritingLog writing={writing} /> : <Heatmap logs={logs} onToggle={(day, entry) => onToggle(h, day, entry)} variants={h.trackType === 'variants' ? h.variants : null} />}
+
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label" htmlFor="ec">Category</label>
+                <select id="ec" className="input" value={h.category} onChange={e => set({ category: e.target.value })}>
+                  <option value="">None</option>
+                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label" htmlFor="ef">How often</label>
+                <select id="ef" className="input" value={h.freq} onChange={e => set({ freq: e.target.value })}>
+                  {Object.entries(FREQ).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="label" htmlFor="et">Tracking</label>
+              <select id="et" className="input" value={h.trackType} onChange={e => set({ trackType: e.target.value })}>
+                {Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            {h.trackType === 'variants' && (
+              <div>
+                <span className="label">Variants</span>
+                <VariantEditor variants={h.variants} value={variant} setValue={setVariant}
+                  onChange={v => set({ variants: v })} onRemove={removeVariant} />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </Sheet>
+  )
+}
+
+function Heatmap({ logs, onToggle, variants }) {
+  const d = today()
+  const weeks = 16
+  const start = (() => { const s = parseYmd(addDays(d, -(weeks * 7 - 1))); const back = (s.getDay() + 6) % 7; return addDays(addDays(d, -(weeks * 7 - 1)), -back) })()
+  const days = []
+  for (let x = start; x <= d; x = addDays(x, 1)) days.push(x)
+  const set = new Map(logs.map(l => [l.date, l]))
+  const cols = []
+  for (let i = 0; i < days.length; i += 7) cols.push(days.slice(i, i + 7))
+  return (
+    <div>
+      <p className="label">Last {weeks} weeks</p>
+      <div className="flex gap-[3px] overflow-x-auto pb-1">
+        {cols.map((c, i) => (
+          <div key={i} className="flex flex-col gap-[3px]">
+            {c.map(day => {
+              const e = set.get(day)
+              return (
+                <button key={day} aria-label={`${fmtDay(day, { weekday: 'short', day: 'numeric', month: 'short' })}: ${e ? (e.variant || 'done') : 'not done'}`}
+                  title={`${fmtDay(day, { weekday: 'short', day: 'numeric', month: 'short' })}${e?.variant ? ` · ${e.variant}` : ''}${e?.duration_min ? ` · ${fmtMinutes(e.duration_min)}` : ''}`}
+                  onClick={() => variants ? null : onToggle(day, e ? null : { variant: null, duration_min: null })}
+                  disabled={!!variants}
+                  className="w-[18px] h-[18px] rounded-[4px] disabled:cursor-default"
+                  style={{ background: e ? 'var(--m-habits)' : 'var(--c-line-soft)', outline: day === d ? '1.5px solid var(--c-faint)' : 'none', outlineOffset: 1 }} />
+              )
+            })}
+          </div>
+        ))}
+      </div>
+      {!variants && <p className="text-[12px] text-faint mt-2">Tap a square to fix a missed day.</p>}
+    </div>
+  )
+}
+
+function WritingLog({ writing }) {
+  const confirm = useConfirm()
+  const toast = useToast()
+  const d = today()
+  const existing = writing.find(w => w.date === d)
+  const [wc, setWc] = useState(existing?.word_count ? String(existing.word_count) : '')
+  const [ch, setCh] = useState(existing?.chapters ? String(existing.chapters) : '')
+  const rowRef = useRef(existing)
+  const { queue, status, retry } = useAutosave(async (_k, p) => { rowRef.current = await saveWriting(rowRef.current, d, p.ch, p.wc) }, 800)
+  const change = (c, w) => { setCh(c); setWc(w); queue(d, { ch: parseInt(c, 10) || 0, wc: parseInt(w, 10) || 0 }) }
+
+  async function removeDay(w) {
+    const ok = await confirm({ title: `Delete the log for ${relDay(w.date).toLowerCase()}?`, body: `${fmtNum(w.word_count)} words and ${plural(w.chapters || 0, 'chapter')} will be removed from your writing history.`, confirmLabel: 'Delete log' })
+    if (!ok) return
+    try { await dbRun('Delete writing log', () => sb.from('writing_logs').delete().eq('id', w.id)); emit('writing'); toast('Log deleted') }
+    catch { toast('Couldn’t delete that log.', 'error') }
+  }
+
+  return (
+    <div>
+      <div className="flex items-baseline mb-2"><p className="label mb-0">Today</p><SaveState status={status} onRetry={retry} className="ml-auto" /></div>
+      <div className="flex gap-3 mb-6">
+        <label className="flex-1"><span className="block text-[12.5px] text-muted mb-1">Words</span>
+          <input type="number" min="0" inputMode="numeric" className="input tnum" value={wc} placeholder="0" onChange={e => change(ch, e.target.value)} /></label>
+        <label className="w-[120px]"><span className="block text-[12.5px] text-muted mb-1">Chapters</span>
+          <input type="number" min="0" inputMode="numeric" className="input tnum" value={ch} placeholder="0" onChange={e => change(e.target.value, wc)} /></label>
+      </div>
+      <p className="label">History</p>
+      <div className="flex flex-col">
+        {writing.filter(w => w.date !== d).slice(0, 30).map(w => (
+          <div key={w.id} className="row px-0 min-h-[40px] border-b border-line-soft">
+            <span className="w-28 text-[13px] text-muted">{fmtDay(w.date, { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+            <span className="flex-1 text-[13.5px] tnum">{fmtNum(w.word_count)} words{w.chapters ? ` · ${plural(w.chapters, 'chapter')}` : ''}</span>
+            <button onClick={() => removeDay(w)} className="btn btn-quiet btn-sm btn-icon" aria-label="Delete this log"><Trash2 size={14} /></button>
+          </div>
+        ))}
+        {writing.filter(w => w.date !== d).length === 0 && <p className="text-[13px] text-muted">Past days will show up here.</p>}
+      </div>
+    </div>
+  )
+}

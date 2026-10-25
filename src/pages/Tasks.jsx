@@ -1,423 +1,292 @@
-import React, { useState, useEffect } from 'react'
-import { sb, dbRun } from '../lib/supabase'
-import { Modal, Confirm, Empty, useToast, PlusIcon, EditIcon, TrashIcon } from '../components/ui'
-
-const PRIORITY_META = {
-  P1: { label: 'Critical', cls: 'tag-p1' },
-  P2: { label: 'High',     cls: 'tag-p2' },
-  P3: { label: 'Normal',   cls: 'tag-p3' },
-  P4: { label: 'Low',      cls: 'tag-p4'  },
-}
-const RECURRENCE_LABELS = {
-  daily:    'Daily',
-  weekdays: 'Weekdays',
-  weekly:   'Weekly',
-  monthly:  'Monthly',
-}
-
-function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6) }
-function today() { return new Date().toISOString().slice(0, 10) }
-function dateLabel(d) {
-  if (!d) return ''
-  const diff = Math.round((new Date(d) - new Date(today())) / 86400000)
-  if (diff < 0)   return `${Math.abs(diff)}d overdue`
-  if (diff === 0) return 'Due today'
-  if (diff === 1) return 'Due tomorrow'
-  return `Due ${new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
-}
-function taskToRow(t) {
-  return {
-    id: t.id, title: t.title, notes: t.notes || '', priority: t.priority,
-    due: t.due || null, project: t.project || null, type: t.type || null,
-    done: t.done, completed_at: t.completedAt || null, dep_ids: t.depIds || [],
-    created_at: t.createdAt, kanban_status: t.kanbanStatus || 'todo',
-    is_recurring: t.isRecurring || false,
-    recurrence_rule: t.recurrenceRule || null,
-    recurrence_end: t.recurrenceEnd || null,
-  }
-}
-function rowToTask(r) {
-  return {
-    id: r.id, title: r.title, notes: r.notes || '', priority: r.priority,
-    due: r.due, project: r.project, type: r.type, done: r.done,
-    completedAt: r.completed_at, depIds: r.dep_ids || [], createdAt: r.created_at,
-    kanbanStatus: r.kanban_status || 'todo',
-    isRecurring: r.is_recurring || false,
-    recurrenceRule: r.recurrence_rule || null,
-    recurrenceEnd: r.recurrence_end || null,
-  }
-}
-const BLANK = { title: '', notes: '', priority: 'P3', due: '', project: '', type: '', depIds: [], isRecurring: false, recurrenceRule: 'daily', recurrenceEnd: '' }
+import React, { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Plus, List, Columns3, Repeat, Link2, CalendarClock, Trash2, ArrowRight, Sun, ChevronDown, CalendarDays, Flag, Hash, ListChecks } from 'lucide-react'
+import { useShell } from '../components/Shell'
+import { Check2, Menu, Seg, Empty, PageLoader, useToast, useConfirm } from '../components/ui'
+import { useBus } from '../lib/bus'
+import { loadTasks, completeTask, createTask, deleteTask, updateTask, sortTasks, STATUSES } from '../lib/tasks'
+import { parseTask } from '../lib/parse'
+import { today, addDays, dueLabel, relDay, plural, PRIORITIES } from '../lib/utils'
 
 export default function Tasks() {
+  const [params, setParams] = useSearchParams()
+  const view = params.get('view') === 'board' ? 'board' : 'list'
+  const [tasks, setTasks] = useState(null)
+  const [project, setProject] = useState('')
+  const { openTask } = useShell()
   const toast = useToast()
-  const [tasks, setTasks]   = useState([])
-  const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState({ status: 'active', priority: '', project: '', recurring: '' })
-  const [modal, setModal]   = useState(false)
-  const [form, setForm]     = useState(BLANK)
-  const [editId, setEditId] = useState(null)
-  const [confirm, setConfirm] = useState(null)
-  const [saving, setSaving] = useState(false)
-  const [depQ, setDepQ]     = useState('')
-  const [tab, setTab]       = useState('tasks') // 'tasks' | 'recurring'
+  const confirm = useConfirm()
 
-  useEffect(() => {
-    sb.from('tasks').select('*').then(({ data, error }) => {
-      if (error) toast('Failed to load tasks', 'error')
-      else setTasks((data || []).map(rowToTask))
-      setLoading(false)
-    })
-  }, [])
+  const reload = () => loadTasks().then(setTasks).catch(() => { setTasks([]); toast('Couldn’t load tasks.', 'error') })
+  useEffect(() => { reload() }, [])
+  useBus('tasks', reload)
+  useBus('task:patch', ({ id, patch }) => setTasks(p => p && p.map(t => t.id === id ? { ...t, ...patch } : t)))
+  useBus('task:removed', ({ id }) => setTasks(p => p && p.filter(t => t.id !== id)))
 
-  async function saveTask() {
-    if (!form.title.trim()) return
-    setSaving(true)
-    const existing = editId ? tasks.find(t => t.id === editId) : null
-    const task = {
-      id: editId || uid(),
-      ...form,
-      done: existing?.done ?? false,
-      completedAt: existing?.completedAt ?? null,
-      createdAt: existing?.createdAt ?? today(),
-      kanbanStatus: existing?.kanbanStatus ?? 'todo',
-    }
+  const projects = useMemo(() => [...new Set((tasks || []).filter(t => !t.done).map(t => t.project).filter(Boolean))].sort(), [tasks])
+  const visible = useMemo(() => (tasks || []).filter(t => !project || t.project === project), [tasks, project])
+
+  async function toggle(t) {
+    setTasks(p => p.map(x => x.id === t.id ? { ...x, done: !x.done } : x))
     try {
-      await dbRun('Save task', () => sb.from('tasks').upsert(taskToRow(task)))
-      setTasks(p => editId ? p.map(t => t.id === editId ? task : t) : [task, ...p])
-      toast(editId ? 'Task updated ✓' : 'Task added ✓')
-      closeModal()
-    } catch { toast('Save failed', 'error') }
-    finally { setSaving(false) }
+      const res = await completeTask(t)
+      setTasks(p => p.map(x => x.id === t.id ? res.updated : x))
+      toast(res.rolledTo ? `Done. Next one ${relDay(res.rolledTo).toLowerCase()}` : t.done ? 'Marked not done' : 'Task completed',
+        { action: { label: 'Undo', onClick: async () => { await res.undo(); reload() } } })
+    } catch { setTasks(p => p.map(x => x.id === t.id ? t : x)); toast('Couldn’t update that task.', 'error') }
   }
 
-  async function toggleDone(id) {
-    const t = tasks.find(t => t.id === id); if (!t) return
-    const updated = { ...t, done: !t.done, completedAt: !t.done ? today() : null }
-    setTasks(p => p.map(x => x.id === id ? updated : x))
-    try { await dbRun('Toggle', () => sb.from('tasks').upsert(taskToRow(updated))) }
-    catch { setTasks(p => p.map(x => x.id === id ? t : x)); toast('Update failed', 'error') }
+  async function patch(t, p, msg) {
+    setTasks(prev => prev.map(x => x.id === t.id ? { ...x, ...p } : x))
+    try { await updateTask(t.id, p); if (msg) toast(msg) }
+    catch { setTasks(prev => prev.map(x => x.id === t.id ? t : x)); toast('Couldn’t update that task.', 'error') }
   }
 
-  async function pauseRecurring(id) {
-    const t = tasks.find(t => t.id === id); if (!t) return
-    const updated = { ...t, isRecurring: false }
-    setTasks(p => p.map(x => x.id === id ? updated : x))
-    try { await dbRun('Pause', () => sb.from('tasks').upsert(taskToRow(updated))); toast('Recurring task paused') }
-    catch { toast('Update failed', 'error') }
+  async function remove(t) {
+    const ok = await confirm({ title: 'Delete this task?', body: `“${t.title}” will be removed for good. This can’t be undone.`, confirmLabel: 'Delete task' })
+    if (!ok) return
+    setTasks(p => p.filter(x => x.id !== t.id))
+    try { await deleteTask(t.id); toast('Task deleted') }
+    catch { reload(); toast('Couldn’t delete the task.', 'error') }
   }
 
-  async function doDelete() {
-    const id = confirm.id
-    setTasks(p => p.filter(t => t.id !== id).map(t => ({ ...t, depIds: (t.depIds || []).filter(d => d !== id) })))
-    setConfirm(null)
-    try { await dbRun('Delete', () => sb.from('tasks').delete().eq('id', id)); toast('Task deleted ✓') }
-    catch { toast('Delete failed', 'error') }
-  }
+  const actions = { toggle, patch, remove, open: openTask }
 
-  function openEdit(t) {
-    setForm({
-      title: t.title, notes: t.notes || '', priority: t.priority,
-      due: t.due || '', project: t.project || '', type: t.type || '', depIds: t.depIds || [],
-      isRecurring: t.isRecurring || false,
-      recurrenceRule: t.recurrenceRule || 'daily',
-      recurrenceEnd: t.recurrenceEnd || '',
-    })
-    setEditId(t.id); setModal(true)
-  }
-  function closeModal() { setModal(false); setForm(BLANK); setEditId(null); setDepQ('') }
-  const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
-
-  const projects = [...new Set(tasks.map(t => t.project).filter(Boolean))]
-
-  const recurringTasks = tasks.filter(t => t.isRecurring)
-
-  const filtered = tasks
-    .filter(t => {
-      if (tab === 'recurring') return t.isRecurring
-      if (t.isRecurring && filter.status !== 'done') return false // show recurring separately
-      if (filter.status === 'active' && t.done) return false
-      if (filter.status === 'done' && !t.done) return false
-      if (filter.priority && t.priority !== filter.priority) return false
-      if (filter.project  && t.project  !== filter.project)  return false
-      return true
-    })
-    .sort((a, b) => {
-      if (a.done !== b.done) return a.done ? 1 : -1
-      const po = { P1: 0, P2: 1, P3: 2, P4: 3 }
-      if (po[a.priority] !== po[b.priority]) return po[a.priority] - po[b.priority]
-      if (a.due && b.due) return new Date(a.due) - new Date(b.due)
-      return a.due ? -1 : b.due ? 1 : 0
-    })
-
-  const depResults = depQ.length > 1
-    ? tasks.filter(t => t.id !== editId && !(form.depIds || []).includes(t.id)
-        && t.title.toLowerCase().includes(depQ.toLowerCase())).slice(0, 6)
-    : []
-
-  if (loading) return <Loader />
+  if (tasks === null) return <PageLoader />
+  const openCount = tasks.filter(t => !t.done).length
 
   return (
-    <div className="p-9 max-w-[900px]">
-      <div className="flex items-end justify-between mb-5">
-        <div>
-          <h1 className="page-title">Tasks</h1>
-          <p className="page-sub">
-            {tasks.filter(t => !t.done && !t.isRecurring).length} active ·{' '}
-            {tasks.filter(t => t.done).length} done ·{' '}
-            {recurringTasks.length} recurring
-          </p>
+    <div className={`mx-auto px-4 md:px-8 pt-8 md:pt-12 ${view === 'board' ? 'max-w-[1400px]' : 'max-w-[920px]'}`}>
+      <header className="flex flex-wrap items-end gap-4 mb-6">
+        <div className="mr-auto">
+          <h1 className="h-page">Tasks</h1>
+          <p className="text-[14px] text-muted mt-1">{openCount ? `${plural(openCount, 'open task')}` : 'All clear'}</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setModal(true)}>
-          <PlusIcon className="w-3.5 h-3.5" /> Add task
-        </button>
-      </div>
+        <Seg label="View" value={view} onChange={v => setParams(v === 'board' ? { view: 'board' } : {})}
+          options={[{ value: 'list', label: 'List', icon: <List size={15} /> }, { value: 'board', label: 'Board', icon: <Columns3 size={15} /> }]} />
+      </header>
 
-      {/* Tab toggle */}
-      <div className="flex gap-1 mb-5">
-        {[['tasks', 'All Tasks'], ['recurring', 'Recurring']].map(([t, label]) => (
-          <button key={t} onClick={() => setTab(t)}
-            className="px-3 py-1.5 rounded-full border text-[12px] transition-all"
-            style={{
-              background: tab === t ? 'var(--c-text)' : 'transparent',
-              color: tab === t ? 'var(--c-bg)' : 'var(--c-muted)',
-              borderColor: tab === t ? 'var(--c-text)' : 'var(--c-border)',
-            }}>
-            {label}{t === 'recurring' && recurringTasks.length > 0 ? ` (${recurringTasks.length})` : ''}
-          </button>
-        ))}
-      </div>
+      <QuickAdd project={project} onAdded={t => setTasks(p => [t, ...p])} />
 
-      {tab === 'tasks' && (
-        <div className="flex gap-2 flex-wrap items-center mb-5">
-          {['all', 'active', 'done'].map(s => (
-            <button key={s} onClick={() => setFilter(p => ({ ...p, status: s }))}
-              className="px-3 py-1.5 rounded-full border text-[12px] transition-all"
-              style={{
-                background: filter.status === s ? 'var(--c-text)' : 'transparent',
-                color: filter.status === s ? 'var(--c-bg)' : 'var(--c-muted)',
-                borderColor: filter.status === s ? 'var(--c-text)' : 'var(--c-border)',
-              }}>
-              {s[0].toUpperCase() + s.slice(1)}
-            </button>
-          ))}
-          <select className="form-select text-[12px] py-1.5 w-auto"
-            value={filter.priority} onChange={e => setFilter(p => ({ ...p, priority: e.target.value }))}>
-            <option value="">All priorities</option>
-            {Object.entries(PRIORITY_META).map(([k, v]) => <option key={k} value={k}>{k} – {v.label}</option>)}
-          </select>
-          <select className="form-select text-[12px] py-1.5 w-auto"
-            value={filter.project} onChange={e => setFilter(p => ({ ...p, project: e.target.value }))}>
-            <option value="">All projects</option>
-            {projects.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
+      {projects.length > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto pb-1 mb-6 -mx-1 px-1" role="group" aria-label="Filter by project">
+          <button className="pick" aria-pressed={!project} onClick={() => setProject('')}>All</button>
+          {projects.map(p => <button key={p} className="pick" aria-pressed={project === p} onClick={() => setProject(project === p ? '' : p)}>{p}</button>)}
         </div>
       )}
 
-      {/* Recurring tab view */}
-      {tab === 'recurring' && (
-        <div>
-          {recurringTasks.length === 0
-            ? <Empty icon={<RecurIcon className="w-9 h-9 mx-auto" />} title="No recurring tasks" sub="Create a task and enable recurring to see it here" action={<button className="btn btn-primary" onClick={() => setModal(true)}><PlusIcon className="w-3.5 h-3.5" /> Add recurring task</button>} />
-            : <div className="flex flex-col gap-2">
-                {recurringTasks.map(t => (
-                  <div key={t.id} className="rounded-card px-4 py-3.5 flex items-start gap-3 group" style={{ background: 'var(--c-surface)', border: '1px solid var(--c-border)' }}>
-                    <div className="w-8 h-8 rounded-[8px] flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: 'var(--c-accent-light)' }}>
-                      <RecurIcon className="w-4 h-4" style={{ color: 'var(--c-accent)' }} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[14px] font-medium mb-1" style={{ color: 'var(--c-text)' }}>{t.title}</p>
-                      <div className="flex gap-1.5 flex-wrap items-center">
-                        <span className={`tag ${PRIORITY_META[t.priority]?.cls}`}>{t.priority}</span>
-                        <span className="tag" style={{ background: 'var(--c-accent-light)', color: 'var(--c-accent)' }}>
-                          ↻ {RECURRENCE_LABELS[t.recurrenceRule] || t.recurrenceRule}
-                        </span>
-                        {t.recurrenceEnd && <span className="tag" style={{ background: 'var(--c-border-light)', color: 'var(--c-muted)' }}>Until {t.recurrenceEnd}</span>}
-                        {t.project && <span className="tag" style={{ background: 'var(--c-border-light)', color: 'var(--c-muted)' }}>{t.project}</span>}
-                      </div>
-                    </div>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                      <button onClick={() => openEdit(t)} className="btn btn-ghost btn-sm btn-icon" title="Edit"><EditIcon className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => pauseRecurring(t.id)} className="btn btn-ghost btn-sm px-2 py-1 text-[11px]" title="Pause recurring">Pause</button>
-                      <button onClick={() => setConfirm({ id: t.id, title: t.title })} className="btn btn-ghost btn-sm btn-icon"><TrashIcon className="w-3 h-3" /></button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-          }
-        </div>
-      )}
-
-      {/* Task list */}
-      {tab === 'tasks' && (
-        filtered.length === 0
-          ? <Empty icon={<TaskEmptyIcon />} title="No tasks here" sub={filter.status === 'active' ? "Add a task to get started" : "Nothing here yet"} />
-          : <div className="flex flex-col gap-1.5">
-              {filtered.map(t => {
-                const overdue = !t.done && t.due && new Date(t.due) < new Date(today())
-                const deps = (t.depIds || []).map(did => tasks.find(x => x.id === did)?.title).filter(Boolean)
-                return (
-                  <div key={t.id}
-                    className="rounded-card px-4 py-3.5 flex items-start gap-3 group transition-all"
-                    style={{
-                      background: 'var(--c-surface)',
-                      border: '1px solid var(--c-border)',
-                      opacity: t.done ? 0.55 : 1,
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--c-faint)' }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--c-border)' }}
-                  >
-                    <button onClick={() => toggleDone(t.id)}
-                      className="w-[18px] h-[18px] rounded-[5px] border flex-shrink-0 mt-0.5 flex items-center justify-center transition-all"
-                      style={{
-                        background: t.done ? 'var(--c-accent)' : 'transparent',
-                        borderColor: t.done ? 'var(--c-accent)' : 'var(--c-border)',
-                      }}
-                    >
-                      {t.done && <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[14px] font-medium mb-1" style={{ color: t.done ? 'var(--c-muted)' : 'var(--c-text)', textDecoration: t.done ? 'line-through' : 'none' }}>{t.title}</p>
-                      <div className="flex gap-1.5 flex-wrap items-center">
-                        <span className={`tag ${PRIORITY_META[t.priority]?.cls}`}>{t.priority}</span>
-                        {t.project && <span className="tag" style={{ background: 'var(--c-border-light)', color: 'var(--c-muted)' }}>{t.project}</span>}
-                        {t.type    && <span className="tag" style={{ background: 'var(--c-border-light)', color: 'var(--c-muted)' }}>{t.type}</span>}
-                        {t.due && <span className="tag" style={{ background: overdue ? 'var(--c-danger-light)' : 'var(--c-border-light)', color: overdue ? 'var(--c-danger)' : 'var(--c-muted)' }}>{dateLabel(t.due)}</span>}
-                        {deps.map(d => <span key={d} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border" style={{ background: 'var(--c-border-light)', color: 'var(--c-muted)', borderColor: 'var(--c-border)' }}>↳ {d}</span>)}
-                      </div>
-                      {t.notes && <p className="text-[12px] mt-1.5" style={{ color: 'var(--c-muted)' }}>{t.notes}</p>}
-                    </div>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                      <button onClick={() => openEdit(t)} className="btn btn-ghost btn-sm btn-icon"><EditIcon className="w-3.5 h-3.5"/></button>
-                      <button onClick={() => setConfirm({ id: t.id, title: t.title })} className="btn btn-ghost btn-sm btn-icon"><TrashIcon className="w-3.5 h-3.5"/></button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-      )}
-
-      {/* Add/Edit modal */}
-      <Modal open={modal} onClose={closeModal} title={editId ? 'Edit task' : 'New task'}>
-        <div className="space-y-4">
-          <div>
-            <label className="form-label">Title *</label>
-            <input className="form-input" placeholder="What needs to be done?"
-              value={form.title} onChange={e => f('title', e.target.value)} autoFocus
-              onKeyDown={e => e.key === 'Enter' && !form.isRecurring && saveTask()} />
-          </div>
-          <div>
-            <label className="form-label">Notes</label>
-            <textarea className="form-textarea" rows={2} placeholder="Any context…"
-              value={form.notes} onChange={e => f('notes', e.target.value)} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="form-label">Priority</label>
-              <select className="form-select" value={form.priority} onChange={e => f('priority', e.target.value)}>
-                {Object.entries(PRIORITY_META).map(([k, v]) => <option key={k} value={k}>{k} – {v.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="form-label">Due date</label>
-              <input className="form-input" type="date" value={form.due} onChange={e => f('due', e.target.value)} />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="form-label">Project</label>
-              <input className="form-input" placeholder="e.g. Work, Personal" list="proj-list"
-                value={form.project} onChange={e => f('project', e.target.value)} />
-              <datalist id="proj-list">{projects.map(p => <option key={p} value={p}/>)}</datalist>
-            </div>
-            <div>
-              <label className="form-label">Type</label>
-              <input className="form-input" placeholder="e.g. Bug, Meeting"
-                value={form.type} onChange={e => f('type', e.target.value)} />
-            </div>
-          </div>
-
-          {/* Recurring toggle */}
-          <div className="rounded-[10px] p-4" style={{ background: 'var(--c-border-light)', border: '1px solid var(--c-border)' }}>
-            <label className="flex items-center gap-3 cursor-pointer mb-3">
-              <div
-                className="relative w-9 h-5 rounded-full transition-colors flex-shrink-0"
-                style={{ background: form.isRecurring ? 'var(--c-accent)' : 'var(--c-border)' }}
-                onClick={() => f('isRecurring', !form.isRecurring)}
-              >
-                <div
-                  className="absolute top-0.5 rounded-full w-4 h-4 bg-white transition-transform shadow-sm"
-                  style={{ left: form.isRecurring ? 18 : 2 }}
-                />
-              </div>
-              <span className="text-[13px] font-medium" style={{ color: 'var(--c-text)' }}>Recurring task</span>
-            </label>
-            {form.isRecurring && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="form-label">Repeat</label>
-                  <select className="form-select" value={form.recurrenceRule} onChange={e => f('recurrenceRule', e.target.value)}>
-                    {Object.entries(RECURRENCE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="form-label">End date (optional)</label>
-                  <input className="form-input" type="date" value={form.recurrenceEnd} onChange={e => f('recurrenceEnd', e.target.value)} />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Dependencies */}
-          <div>
-            <label className="form-label">Depends on</label>
-            <input className="form-input" placeholder="Search tasks to link…"
-              value={depQ} onChange={e => setDepQ(e.target.value)} />
-            {depResults.length > 0 && (
-              <div className="border border-border rounded-[8px] mt-1 overflow-hidden shadow-md" style={{ background: 'var(--c-surface)' }}>
-                {depResults.map(t => (
-                  <button key={t.id} onClick={() => { f('depIds', [...(form.depIds || []), t.id]); setDepQ('') }}
-                    className="w-full text-left px-3 py-2 text-[13px] transition-colors"
-                    style={{ borderBottom: '1px solid var(--c-border-light)', color: 'var(--c-text)' }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--c-accent-light)'; e.currentTarget.style.color = 'var(--c-accent)' }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--c-text)' }}
-                  >
-                    {t.title} <span className="text-[11px]" style={{ color: 'var(--c-muted)' }}>{t.priority}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            {(form.depIds || []).length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-2">
-                {form.depIds.map(did => {
-                  const dt = tasks.find(t => t.id === did)
-                  return (
-                    <span key={did} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border" style={{ background: 'var(--c-border-light)', color: 'var(--c-muted)', borderColor: 'var(--c-border)' }}>
-                      ↳ {dt?.title || did}
-                      <button onClick={() => f('depIds', form.depIds.filter(d => d !== did))} style={{ color: 'var(--c-faint)' }} onMouseEnter={e => e.currentTarget.style.color = 'var(--c-danger)'} onMouseLeave={e => e.currentTarget.style.color = 'var(--c-faint)'}>×</button>
-                    </span>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="flex gap-2 justify-end pt-2">
-            <button className="btn btn-ghost" onClick={closeModal}>Cancel</button>
-            <button className="btn btn-primary" onClick={saveTask} disabled={saving || !form.title.trim()}>
-              {saving ? 'Saving…' : editId ? 'Update task' : 'Add task'}
-            </button>
-          </div>
-        </div>
-      </Modal>
-
-      <Confirm open={!!confirm} title="Delete task?"
-        body={`"${confirm?.title}" will be permanently removed.`}
-        onOk={doDelete} onCancel={() => setConfirm(null)} />
+      {view === 'list'
+        ? <ListView tasks={visible} {...actions} />
+        : <BoardView tasks={visible} setTasks={setTasks} {...actions} />}
     </div>
   )
 }
 
-function Loader() { return <div className="flex items-center justify-center h-64 text-[13px]" style={{ color: 'var(--c-muted)' }}>Loading…</div> }
-function TaskEmptyIcon() { return <svg className="w-9 h-9 mx-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 12l2 2 4-4"/></svg> }
-function RecurIcon(p) { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg> }
+// ── Quick add with live parsing ────────────────────────────────
+function QuickAdd({ project, onAdded }) {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const toast = useToast()
+  const p = parseTask(text)
+
+  async function submit(e) {
+    e.preventDefault()
+    if (!text.trim() || busy) return
+    setBusy(true)
+    try {
+      const t = await createTask({ title: p.title || text.trim(), due: p.due, priority: p.priority || 'P3', project: p.project || project || '' })
+      onAdded(t); setText('')
+    } catch { toast('Couldn’t add the task.', 'error') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <form onSubmit={submit} className="panel flex items-center gap-3 pl-4 pr-2 min-h-[52px] mb-4 focus-within:shadow-[inset_0_0_0_1.5px_var(--c-accent)]">
+      <Plus size={18} className="text-faint flex-shrink-0" />
+      <input value={text} onChange={e => setText(e.target.value)} aria-label="Add a task"
+        placeholder={project ? `Add to ${project}…` : 'Add a task, e.g. “Draft chapter 12 fri p2 #novel”'}
+        className="flex-1 min-w-0 bg-transparent outline-none text-[15px] placeholder:text-faint" />
+      <div className="hidden sm:flex items-center gap-1.5">
+        {p.due && <span className="chip" style={{ background: 'var(--c-accent-soft)', color: 'var(--c-accent)' }}><CalendarDays size={12} />{relDay(p.due)}</span>}
+        {p.priority && <span className="chip" style={{ color: PRIORITIES[p.priority].color }}><Flag size={12} />{PRIORITIES[p.priority].label}</span>}
+        {p.project && <span className="chip"><Hash size={12} />{p.project}</span>}
+      </div>
+      <button type="submit" disabled={!text.trim() || busy} className="btn btn-primary btn-sm">Add</button>
+    </form>
+  )
+}
+
+// ── List view ──────────────────────────────────────────────────
+function ListView({ tasks, toggle, patch, remove, open }) {
+  const [showDone, setShowDone] = useState(false)
+  const d = today()
+  const openT = tasks.filter(t => !t.done).sort(sortTasks)
+  const done = tasks.filter(t => t.done).sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''))
+
+  const groups = [
+    { key: 'overdue', label: 'Overdue', tone: 'danger', items: openT.filter(t => t.due && t.due < d) },
+    { key: 'today', label: 'Today', items: openT.filter(t => t.due === d) },
+    { key: 'tomorrow', label: 'Tomorrow', items: openT.filter(t => t.due === addDays(d, 1)) },
+    { key: 'week', label: 'Next 7 days', items: openT.filter(t => t.due > addDays(d, 1) && t.due <= addDays(d, 7)) },
+    { key: 'later', label: 'Later', items: openT.filter(t => t.due > addDays(d, 7)) },
+    { key: 'someday', label: 'No date', items: openT.filter(t => !t.due) },
+  ].filter(g => g.items.length)
+
+  if (openT.length === 0 && done.length === 0) {
+    return <Empty icon={ListChecks} title="No tasks yet" body="Type one above. Add “tomorrow” or “p1” and it’s dated and prioritised for you." />
+  }
+
+  return (
+    <div className="flex flex-col gap-8">
+      {openT.length === 0 && <p className="text-[15px] text-muted px-1">Every open task is done. Nice work.</p>}
+      {groups.map(g => (
+        <section key={g.key} aria-labelledby={`g-${g.key}`}>
+          <h2 id={`g-${g.key}`} className="flex items-baseline gap-2 px-1 mb-2">
+            <span className="h-section" style={{ color: g.tone === 'danger' ? 'var(--c-danger)' : undefined }}>{g.label}</span>
+            <span className="text-[13px] text-faint tnum">{g.items.length}</span>
+          </h2>
+          <div className="panel p-1.5">
+            {g.items.map(t => <TaskRow key={t.id} t={t} groupKey={g.key} toggle={toggle} patch={patch} remove={remove} open={open} />)}
+          </div>
+        </section>
+      ))}
+      {done.length > 0 && (
+        <section>
+          <button onClick={() => setShowDone(s => !s)} className="flex items-center gap-1.5 px-1 text-[14px] text-muted hover:text-ink" aria-expanded={showDone}>
+            <ChevronDown size={16} style={{ transform: showDone ? 'rotate(180deg)' : 'none', transition: 'transform 200ms var(--ease-out)' }} />
+            Completed <span className="text-faint tnum">{done.length}</span>
+          </button>
+          {showDone && (
+            <div className="p-1.5 mt-2">
+              {done.slice(0, 50).map(t => <TaskRow key={t.id} t={t} toggle={toggle} patch={patch} remove={remove} open={open} />)}
+              {done.length > 50 && <p className="text-[12.5px] text-faint px-3 pt-2">Showing the 50 most recent.</p>}
+            </div>
+          )}
+        </section>
+      )}
+    </div>
+  )
+}
+
+function TaskRow({ t, groupKey, toggle, patch, remove, open }) {
+  const d = today()
+  const showDue = t.due && !['today', 'tomorrow'].includes(groupKey) && !t.done
+  return (
+    <div className="row row-hover group cursor-pointer" onClick={() => open(t.id)}>
+      <Check2 checked={t.done} onChange={() => toggle(t)} label={t.done ? 'Mark not done' : 'Mark done'} />
+      <div className="flex-1 min-w-0">
+        <p className={`text-[14.5px] truncate ${t.done ? 'line-through text-muted' : ''}`}>{t.title}</p>
+        {(t.notes || t.project || showDue || t.isRecurring || t.depIds.length > 0) && (
+          <div className="flex items-center gap-3 mt-0.5 text-[12.5px] text-faint min-w-0">
+            {showDue && <span className="inline-flex items-center gap-1" style={{ color: t.due < d ? 'var(--c-danger)' : undefined }}><CalendarClock size={12} />{dueLabel(t.due)}</span>}
+            {t.project && <span className="truncate">{t.project}</span>}
+            {t.isRecurring && <span className="inline-flex items-center gap-1"><Repeat size={12} />Repeats</span>}
+            {t.depIds.length > 0 && <span className="inline-flex items-center gap-1"><Link2 size={12} />Waiting on {t.depIds.length}</span>}
+            {t.notes && !t.project && !showDue && <span className="truncate">{t.notes}</span>}
+          </div>
+        )}
+      </div>
+      {t.priority !== 'P3' && !t.done && (
+        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: PRIORITIES[t.priority].color }} aria-label={PRIORITIES[t.priority].label} title={PRIORITIES[t.priority].label} />
+      )}
+      <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100 transition-opacity">
+        <Menu items={[
+          !t.done && t.due !== d && { label: 'Do today', icon: <Sun size={15} />, onClick: () => patch(t, { due: d }, 'Moved to today') },
+          !t.done && { label: 'Do tomorrow', icon: <ArrowRight size={15} />, onClick: () => patch(t, { due: addDays(d, 1) }, 'Moved to tomorrow') },
+          !t.done && t.due && { label: 'Remove date', icon: <CalendarDays size={15} />, onClick: () => patch(t, { due: null }) },
+          { divider: true },
+          { label: 'Delete', icon: <Trash2 size={15} />, danger: true, onClick: () => remove(t) },
+        ]} />
+      </div>
+    </div>
+  )
+}
+
+// ── Board view ─────────────────────────────────────────────────
+function BoardView({ tasks, setTasks, patch, remove, open }) {
+  const [drag, setDrag] = useState(null)
+  const [over, setOver] = useState(null)
+  const [adding, setAdding] = useState(null)
+  const [text, setText] = useState('')
+  const toast = useToast()
+  const cutoff = addDays(today(), -14)
+
+  function move(t, status) {
+    if (t.status === status) return
+    patch(t, { status, done: status === 'done', completedAt: status === 'done' ? today() : null })
+  }
+
+  async function add(status) {
+    if (!text.trim()) { setAdding(null); return }
+    const p = parseTask(text)
+    try {
+      const t = await createTask({ title: p.title || text.trim(), due: p.due, priority: p.priority || 'P3', project: p.project || '', status })
+      setTasks(prev => [t, ...prev]); setText('')
+    } catch { toast('Couldn’t add the task.', 'error') }
+  }
+
+  return (
+    <div className="flex gap-3 overflow-x-auto pb-4 -mx-4 px-4 md:mx-0 md:px-0 snap-x snap-mandatory md:snap-none">
+      {STATUSES.map(col => {
+        const items = tasks
+          .filter(t => t.status === col.id && (col.id !== 'done' || (t.completedAt || '') >= cutoff))
+          .sort(sortTasks)
+        return (
+          <section key={col.id} aria-label={col.label}
+            className="snap-start flex-shrink-0 w-[82vw] sm:w-[300px] md:flex-1 md:min-w-[250px] rounded-[16px] p-2 transition-colors duration-150"
+            style={{ background: over === col.id ? 'var(--c-accent-soft)' : 'color-mix(in srgb, var(--c-line) 35%, transparent)' }}
+            onDragOver={e => { e.preventDefault(); setOver(col.id) }}
+            onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setOver(null) }}
+            onDrop={e => { e.preventDefault(); const t = tasks.find(x => x.id === drag); if (t) move(t, col.id); setDrag(null); setOver(null) }}>
+            <h2 className="flex items-baseline gap-2 px-2 pt-1.5 pb-2.5">
+              <span className="text-[14px] font-semibold">{col.label}</span>
+              <span className="text-[12.5px] text-faint tnum">{items.length}</span>
+              {col.id === 'done' && <span className="text-[12px] text-faint ml-auto">last 14 days</span>}
+            </h2>
+            <div className="flex flex-col gap-2 min-h-[60px]">
+              {items.map(t => (
+                <article key={t.id} draggable
+                  onDragStart={e => { setDrag(t.id); e.dataTransfer.effectAllowed = 'move' }}
+                  onDragEnd={() => { setDrag(null); setOver(null) }}
+                  onClick={() => open(t.id)}
+                  className="group bg-surface rounded-[12px] p-3 cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,.06),inset_0_0_0_1px_var(--c-line-soft)] transition-opacity"
+                  style={{ opacity: drag === t.id ? 0.4 : 1 }}>
+                  <div className="flex items-start gap-2">
+                    {t.priority !== 'P3' && <span className="w-2 h-2 rounded-full mt-[7px] flex-shrink-0" style={{ background: PRIORITIES[t.priority].color }} />}
+                    <p className={`flex-1 text-[14px] leading-snug ${t.done ? 'line-through text-muted' : ''}`}>{t.title}</p>
+                    <div className="-mr-1 -mt-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
+                      <Menu items={[
+                        { heading: 'Move to' },
+                        ...STATUSES.filter(s => s.id !== t.status).map(s => ({ label: s.label, onClick: () => move(t, s.id) })),
+                        { divider: true },
+                        { label: 'Delete', icon: <Trash2 size={15} />, danger: true, onClick: () => remove(t) },
+                      ]} />
+                    </div>
+                  </div>
+                  {(t.project || t.due) && (
+                    <div className="flex items-center gap-2 mt-2 text-[12px] text-faint">
+                      {t.project && <span className="truncate">{t.project}</span>}
+                      {t.due && <span className="ml-auto" style={{ color: !t.done && t.due < today() ? 'var(--c-danger)' : undefined }}>{relDay(t.due)}</span>}
+                    </div>
+                  )}
+                </article>
+              ))}
+              {adding === col.id ? (
+                <form onSubmit={e => { e.preventDefault(); add(col.id) }} className="bg-surface rounded-[12px] p-2 shadow-[inset_0_0_0_1.5px_var(--c-accent)]">
+                  <input autoFocus value={text} onChange={e => setText(e.target.value)} placeholder="Task name"
+                    onKeyDown={e => { if (e.key === 'Escape') { setAdding(null); setText('') } }}
+                    onBlur={() => { if (!text.trim()) setAdding(null) }}
+                    className="w-full bg-transparent outline-none text-[14px] px-1 py-1" aria-label={`Add to ${col.label}`} />
+                </form>
+              ) : (
+                <button onClick={() => { setAdding(col.id); setText('') }} className="flex items-center gap-1.5 h-9 px-2 rounded-[10px] text-[13px] text-muted hover:text-ink hover:bg-surface">
+                  <Plus size={15} /> Add
+                </button>
+              )}
+            </div>
+          </section>
+        )
+      })}
+    </div>
+  )
+}

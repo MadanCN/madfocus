@@ -1,66 +1,51 @@
-import React, { createContext, useContext, useState } from 'react'
+import React from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Shell from './components/Shell'
-import NotesOverlay from './components/Notes/NotesOverlay'
-import FloatingFAB from './components/FloatingFAB'
-import { ToastProvider } from './components/ui'
+import { ToastProvider, ConfirmProvider, PageLoader } from './components/ui'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { FocusProvider } from './contexts/FocusContext'
 
-// Pages
-import Home       from './pages/Home'
-import Tasks      from './pages/Tasks'
-import Habits     from './pages/Habits'
-import Goals      from './pages/Goals'
-import Journal    from './pages/Journal'
-import Pomodoro   from './pages/Pomodoro'
-import Library    from './pages/Library'
-import Kanban     from './pages/Kanban'
-import Login      from './pages/Login'
-import AICoach    from './pages/AICoach'
-
-// ── Notes overlay context ──
-const NotesCtx = createContext(null)
-export const useNotes = () => useContext(NotesCtx)
+import Today   from './pages/Today'
+import Tasks   from './pages/Tasks'
+import Habits  from './pages/Habits'
+import Goals   from './pages/Goals'
+import Journal from './pages/Journal'
+import Library from './pages/Library'
+import Notes   from './pages/Notes'
+import Login   from './pages/Login'
 
 function ProtectedApp() {
   const { user, loading } = useAuth()
-  const [notesOpen, setNotesOpen] = useState(false)
 
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--c-bg)' }}>
-      <div className="text-center">
-        <h2 className="font-serif text-[26px] mb-1" style={{ color: 'var(--c-text)' }}>
-          mad<span style={{ color: 'var(--c-accent)' }}>.</span>focus
-        </h2>
-        <p className="text-[13px]" style={{ color: 'var(--c-muted)' }}>Loading your workspace…</p>
-      </div>
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+      <p className="font-serif text-[22px] font-semibold">Mad Focus</p>
+      <PageLoader />
     </div>
   )
 
   if (!user) return <Login />
 
   return (
-    <NotesCtx.Provider value={{ notesOpen, setNotesOpen }}>
+    <FocusProvider>
       <Shell>
         <Routes>
-          <Route path="/"          element={<Home />} />
+          <Route path="/"          element={<Today />} />
           <Route path="/tasks"     element={<Tasks />} />
           <Route path="/habits"    element={<Habits />} />
           <Route path="/goals"     element={<Goals />} />
           <Route path="/journal"   element={<Journal />} />
-          <Route path="/pomodoro"  element={<Pomodoro />} />
           <Route path="/library/*" element={<Library />} />
-          <Route path="/kanban"    element={<Kanban />} />
-          <Route path="/notes"     element={<NotesOverlay standalone />} />
-          <Route path="/ai-coach"  element={<AICoach />} />
+          <Route path="/notes"     element={<Notes />} />
+          {/* Legacy paths are redirected inside Shell */}
+          <Route path="/kanban"    element={null} />
+          <Route path="/pomodoro"  element={null} />
+          <Route path="/ai-coach"  element={null} />
           <Route path="*"          element={<Navigate to="/" replace />} />
         </Routes>
       </Shell>
-
-      <NotesOverlay open={notesOpen} onClose={() => setNotesOpen(false)} />
-      <FloatingFAB notesOpen={notesOpen} setNotesOpen={setNotesOpen} />
-    </NotesCtx.Provider>
+    </FocusProvider>
   )
 }
 
@@ -68,9 +53,11 @@ export default function App() {
   return (
     <ThemeProvider>
       <ToastProvider>
-        <AuthProvider>
-          <ProtectedApp />
-        </AuthProvider>
+        <ConfirmProvider>
+          <AuthProvider>
+            <ProtectedApp />
+          </AuthProvider>
+        </ConfirmProvider>
       </ToastProvider>
     </ThemeProvider>
   )

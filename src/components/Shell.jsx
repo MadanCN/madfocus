@@ -1,273 +1,272 @@
-import React, { useState, useEffect, useCallback } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { Sun, Plus, Search, Sparkles, Timer, Moon, LogOut, MoreHorizontal } from 'lucide-react'
+import { SPACES } from '../lib/spaces'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
-import AIPanel from './AIPanel'
+import { useFocus, MODES } from '../contexts/FocusContext'
+import { Menu, Sheet, anyLayerOpen } from './ui'
+import { fmtClock, isTypingTarget } from '../lib/utils'
 import CommandPalette from './CommandPalette'
+import Capture from './Capture'
+import CoachDrawer from './CoachDrawer'
+import FocusOverlay from './FocusOverlay'
+import TaskSheet from './TaskSheet'
 
-const NAV = [
-  {
-    label: 'Workspace',
-    items: [
-      { to: '/',        icon: HomeIcon,    label: 'Home' },
-      { to: '/kanban',  icon: KanbanIcon,  label: 'Kanban' },
-      { to: '/tasks',   icon: TaskIcon,    label: 'Tasks' },
-      { to: '/habits',  icon: ClockIcon,   label: 'Habits' },
-    ],
-  },
-  {
-    label: 'Focus',
-    items: [
-      { to: '/goals',    icon: TargetIcon,   label: 'Goals' },
-      { to: '/journal',  icon: JournalIcon,  label: 'Journal' },
-      { to: '/pomodoro', icon: TimerIcon,    label: 'Pomodoro' },
-    ],
-  },
-  {
-    label: 'Knowledge',
-    items: [
-      { to: '/library', icon: LibraryIcon, label: 'Library' },
-    ],
-  },
-]
+const ShellCtx = createContext(null)
+export const useShell = () => useContext(ShellCtx)
 
 export default function Shell({ children }) {
-  const [sidebarOpen, setSidebarOpen]   = useState(false)
-  const [panelOpen, setPanelOpen]       = useState(() => localStorage.getItem('mf-panel') !== 'closed')
-  const [cmdOpen, setCmdOpen]           = useState(false)
-  const location                        = useLocation()
-  const { user, signOut }              = useAuth()
-  const { dark, toggle: toggleTheme }   = useTheme()
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [captureOpen, setCaptureOpen] = useState(false)
+  const [captureMode, setCaptureMode] = useState('task')
+  const [coachOpen, setCoachOpen]     = useState(false)
+  const [moreOpen, setMoreOpen]       = useState(false)
+  const [taskId, setTaskId]           = useState(null)
+  const focus    = useFocus()
+  const navigate = useNavigate()
+  const location = useLocation()
 
-  useEffect(() => { setSidebarOpen(false) }, [location.pathname])
+  const openCapture = useCallback((mode = 'task') => { setCaptureMode(mode); setCaptureOpen(true) }, [])
+  const openTask = useCallback(id => setTaskId(id), [])
+
+  // Legacy routes → new homes
+  useEffect(() => {
+    const p = location.pathname
+    if (p === '/pomodoro') { focus.openOverlay(); navigate('/', { replace: true }) }
+    if (p === '/ai-coach') { setCoachOpen(true); navigate('/', { replace: true }) }
+    if (p === '/kanban')   navigate('/tasks?view=board', { replace: true })
+  }, [location.pathname])
+
+  useEffect(() => { setMoreOpen(false) }, [location.pathname])
 
   useEffect(() => {
     const h = e => {
-      if (e.key === 'Escape') { setSidebarOpen(false); setCmdOpen(false) }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setCmdOpen(p => !p) }
+      const mod = e.metaKey || e.ctrlKey
+      if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(p => !p); return }
+      if (mod || e.altKey || isTypingTarget(e.target) || anyLayerOpen() || paletteOpen || captureOpen) return
+      const k = e.key.toLowerCase()
+      if (k === 'n') { e.preventDefault(); openCapture('task') }
+      else if (k === '/') { e.preventDefault(); setPaletteOpen(true) }
+      else if (k === 'f') { e.preventDefault(); focus.openOverlay() }
+      else if (k === 'c') { e.preventDefault(); setCoachOpen(true) }
+      else {
+        const sp = SPACES.find(s => s.key === e.key)
+        if (sp) { e.preventDefault(); navigate(sp.to) }
+      }
     }
     document.addEventListener('keydown', h)
     return () => document.removeEventListener('keydown', h)
-  }, [])
+  }, [paletteOpen, captureOpen, openCapture, focus.openOverlay])
 
-  function togglePanel() {
-    setPanelOpen(p => {
-      const next = !p
-      localStorage.setItem('mf-panel', next ? 'open' : 'closed')
-      return next
-    })
+  const ctx = {
+    openPalette: () => setPaletteOpen(true),
+    openCapture, openTask,
+    openCoach: () => setCoachOpen(true),
   }
 
-  const initials = user?.email ? user.email[0].toUpperCase() : '?'
-
   return (
-    <div className="flex min-h-screen" style={{ background: 'var(--c-bg)' }}>
-
-      {/* Mobile backdrop */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-[80] lg:hidden"
-          style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* ── Left nav ─────────────────────────────── */}
-      <nav
-        className={`
-          fixed top-0 left-0 h-screen z-[90]
-          w-[210px] flex flex-col pt-6 pb-5 overflow-y-auto
-          transition-transform duration-200 ease-in-out
-          lg:translate-x-0 lg:sticky
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        `}
-        style={{
-          background: 'var(--c-surface)',
-          borderRight: '1px solid var(--c-border)',
-        }}
-      >
-        {/* Logo + search */}
-        <div className="px-4 mb-5">
-          <div className="flex items-center justify-between mb-4" style={{ paddingBottom: '1rem', borderBottom: '1px solid var(--c-border)' }}>
-            <div>
-              <h1 className="font-serif text-[21px] tracking-tight" style={{ color: 'var(--c-text)' }}>
-                mad<span style={{ color: 'var(--c-accent)' }}>.</span>focus
-              </h1>
-              <p className="text-[10px] mt-0.5 font-medium tracking-wide" style={{ color: 'var(--c-faint)' }}>STAY SHARP · SHIP THINGS</p>
-            </div>
-            <button className="lg:hidden p-1.5 rounded-[6px]" style={{ color: 'var(--c-muted)' }} onClick={() => setSidebarOpen(false)}>
-              <XIcon className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Search / Command Palette trigger */}
-          <button
-            onClick={() => setCmdOpen(true)}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-[8px] text-[12px] transition-all"
-            style={{ background: 'var(--c-bg)', border: '1px solid var(--c-border)', color: 'var(--c-faint)' }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--c-border)'; e.currentTarget.style.background = 'var(--c-border-light)' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--c-border)'; e.currentTarget.style.background = 'var(--c-bg)' }}
-          >
-            <SearchIcon className="w-3.5 h-3.5 flex-shrink-0" />
-            <span className="flex-1 text-left">Search…</span>
-            <kbd className="text-[9px] px-1 py-0.5 rounded" style={{ background: 'var(--c-border)', color: 'var(--c-faint)', fontFamily: 'monospace' }}>⌘K</kbd>
-          </button>
-        </div>
-
-        {/* Nav groups */}
-        <div className="flex-1 px-2.5 space-y-0.5">
-          {NAV.map(group => (
-            <div key={group.label} className="mb-3">
-              <p className="text-[9.5px] font-bold tracking-[.1em] uppercase px-2.5 mb-1" style={{ color: 'var(--c-faint)' }}>
-                {group.label}
-              </p>
-              {group.items.map(item => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.to === '/'}
-                  className="flex items-center gap-2.5 w-full px-2.5 py-[7px] rounded-[7px] text-[13px] transition-all duration-100 cursor-pointer"
-                  style={({ isActive }) => ({
-                    background: isActive ? 'var(--c-accent-light)' : 'transparent',
-                    color: isActive ? 'var(--c-accent)' : 'var(--c-muted)',
-                    fontWeight: isActive ? 500 : 400,
-                  })}
-                  onMouseEnter={e => { if (!e.currentTarget.dataset.active) { e.currentTarget.style.background = 'var(--c-border-light)'; e.currentTarget.style.color = 'var(--c-text)' } }}
-                  onMouseLeave={e => { if (!e.currentTarget.dataset.active) { e.currentTarget.style.background = ''; e.currentTarget.style.color = '' } }}
-                >
-                  {({ isActive }) => (
-                    <>
-                      <item.icon className="w-[15px] h-[15px] flex-shrink-0" />
-                      <span className="flex-1">{item.label}</span>
-                      {isActive && <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: 'var(--c-accent)' }} />}
-                    </>
-                  )}
-                </NavLink>
-              ))}
-            </div>
-          ))}
-        </div>
-
-        {/* Notes quick link */}
-        <div className="px-2.5 mb-2">
-          <p className="text-[9.5px] font-bold tracking-[.1em] uppercase px-2.5 mb-1" style={{ color: 'var(--c-faint)' }}>Quick Access</p>
-          <NavLink to="/notes"
-            className="flex items-center gap-2.5 w-full px-2.5 py-[7px] rounded-[7px] text-[13px] transition-all duration-100"
-            style={({ isActive }) => ({ background: isActive ? 'var(--c-accent-light)' : 'transparent', color: isActive ? 'var(--c-accent)' : 'var(--c-muted)', fontWeight: isActive ? 500 : 400 })}
-          >
-            {({ isActive }) => (<><NoteIcon className="w-[15px] h-[15px] flex-shrink-0"/><span className="flex-1">Notes</span>{isActive && <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--c-accent)' }}/>}</>)}
-          </NavLink>
-
-          {/* AI Panel toggle — always visible */}
-          <button
-            onClick={togglePanel}
-            className="flex items-center gap-2.5 w-full px-2.5 py-[7px] rounded-[7px] text-[13px] transition-all duration-100 mt-0.5"
-            style={{ color: panelOpen ? 'var(--c-accent)' : 'var(--c-muted)', background: panelOpen ? 'var(--c-accent-light)' : 'transparent', fontWeight: panelOpen ? 500 : 400 }}
-          >
-            <SparkleIcon className="w-[15px] h-[15px] flex-shrink-0" />
-            <span className="flex-1 text-left">AI Coach</span>
-            <span className="text-[9px] font-bold tracking-wide px-1.5 py-0.5 rounded-full uppercase" style={{ background: panelOpen ? 'var(--c-accent-mid)' : 'var(--c-border-light)', color: panelOpen ? 'var(--c-accent)' : 'var(--c-faint)' }}>
-              {panelOpen ? 'ON' : 'OFF'}
-            </span>
-          </button>
-        </div>
-
-        {/* Footer */}
-        <div className="px-2.5 pt-3 mx-0 space-y-0.5" style={{ borderTop: '1px solid var(--c-border)' }}>
-          <button
-            onClick={toggleTheme}
-            className="flex items-center gap-2.5 w-full px-2.5 py-[7px] rounded-[7px] text-[13px] transition-all"
-            style={{ color: 'var(--c-muted)' }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'var(--c-border-light)'; e.currentTarget.style.color = 'var(--c-text)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--c-muted)' }}
-          >
-            {dark ? <SunIcon className="w-[15px] h-[15px]" /> : <MoonIcon className="w-[15px] h-[15px]" />}
-            <span>{dark ? 'Light mode' : 'Dark mode'}</span>
-          </button>
-
-          {user && (
-            <div className="flex items-center gap-2 px-2 py-2 rounded-[7px]">
-              <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold" style={{ background: 'var(--c-accent-mid)', color: 'var(--c-accent)' }}>
-                {initials}
-              </div>
-              <p className="text-[11.5px] truncate flex-1" style={{ color: 'var(--c-muted)' }}>{user.email}</p>
-              <button onClick={signOut} title="Sign out" className="p-1 rounded-[5px] flex-shrink-0 transition-colors" style={{ color: 'var(--c-faint)' }}
-                onMouseEnter={e => { e.currentTarget.style.color = 'var(--c-danger)'; e.currentTarget.style.background = 'var(--c-danger-light)' }}
-                onMouseLeave={e => { e.currentTarget.style.color = 'var(--c-faint)'; e.currentTarget.style.background = 'transparent' }}>
-                <SignOutIcon className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-        </div>
-      </nav>
-
-      {/* ── Main content ─────────────────────────── */}
-      <div className="flex-1 min-w-0 flex flex-col">
-
-        {/* Mobile top bar */}
-        <div className="sticky top-0 z-[70] lg:hidden flex items-center gap-3 px-4 py-3"
-          style={{ background: 'var(--c-surface)', borderBottom: '1px solid var(--c-border)' }}>
-          <button onClick={() => setSidebarOpen(true)} className="p-1.5 rounded-[6px]" style={{ color: 'var(--c-muted)' }}>
-            <MenuIcon className="w-[18px] h-[18px]" />
-          </button>
-          <span className="font-serif text-[17px] flex-1" style={{ color: 'var(--c-text)' }}>
-            mad<span style={{ color: 'var(--c-accent)' }}>.</span>focus
-          </span>
-          <button onClick={() => setCmdOpen(true)} className="p-1.5 rounded-[6px]" style={{ color: 'var(--c-muted)' }}>
-            <SearchIcon className="w-[17px] h-[17px]" />
-          </button>
-          <button onClick={toggleTheme} className="p-1.5 rounded-[6px]" style={{ color: 'var(--c-muted)' }}>
-            {dark ? <SunIcon className="w-[17px] h-[17px]" /> : <MoonIcon className="w-[17px] h-[17px]" />}
-          </button>
-        </div>
-
-        <main className="flex-1 min-w-0">
+    <ShellCtx.Provider value={ctx}>
+      <div className="min-h-screen flex flex-col">
+        <TopBar onCoach={() => setCoachOpen(true)} />
+        <main className="flex-1 w-full" style={{ paddingBottom: 'calc(var(--dock-h) + 48px + env(safe-area-inset-bottom))' }}>
           {children}
         </main>
       </div>
 
-      {/* ── Right AI Panel ───────────────────────── */}
-      {panelOpen && (
-        <aside
-          className="hidden xl:flex flex-col sticky top-0 h-screen w-[340px] flex-shrink-0"
-          style={{ borderLeft: '1px solid var(--c-border)', background: 'var(--c-surface)' }}
-        >
-          <AIPanel onClose={togglePanel} />
-        </aside>
-      )}
+      <Dock
+        onSearch={() => setPaletteOpen(true)}
+        onCapture={() => openCapture('task')}
+        onMore={() => setMoreOpen(true)}
+        captureOpen={captureOpen}
+      />
 
-      {/* Collapsed panel tab */}
-      {!panelOpen && (
-        <button
-          onClick={togglePanel}
-          className="hidden xl:flex fixed right-0 top-1/2 -translate-y-1/2 z-[60] items-center gap-1.5 py-4 px-1.5 rounded-l-[10px] text-[11px] font-semibold transition-all"
-          style={{ background: 'var(--c-surface)', border: '1px solid var(--c-border)', borderRight: 'none', color: 'var(--c-accent)', writingMode: 'vertical-lr', transform: 'translateY(-50%)' }}
-        >
-          <SparkleIcon className="w-3.5 h-3.5 rotate-0" style={{ writingMode: 'horizontal-tb' }} />
-          AI
-        </button>
-      )}
+      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)}
+        onCoach={() => { setMoreOpen(false); setCoachOpen(true) }}
+        onSearch={() => { setMoreOpen(false); setPaletteOpen(true) }} />
 
-      {/* Command Palette */}
-      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
-    </div>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)}
+        onCapture={openCapture} onCoach={() => setCoachOpen(true)} onOpenTask={openTask} />
+      <Capture open={captureOpen} mode={captureMode} setMode={setCaptureMode}
+        onClose={() => setCaptureOpen(false)} onOpenTask={openTask} />
+      <CoachDrawer open={coachOpen} onClose={() => setCoachOpen(false)} />
+      <FocusOverlay />
+      <TaskSheet id={taskId} onClose={() => setTaskId(null)} />
+    </ShellCtx.Provider>
   )
 }
 
-// ── SVG Icons ──
-function HomeIcon(p)    { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> }
-function TaskIcon(p)    { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 12l2 2 4-4"/></svg> }
-function ClockIcon(p)   { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> }
-function KanbanIcon(p)  { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="5" height="15" rx="1"/><rect x="10" y="3" width="5" height="10" rx="1"/><rect x="17" y="3" width="5" height="12" rx="1"/></svg> }
-function TargetIcon(p)  { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg> }
-function JournalIcon(p) { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg> }
-function SparkleIcon(p) { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg> }
-function LibraryIcon(p) { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> }
-function TimerIcon(p)   { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3l-1.5 2.5"/><path d="M19 3l1.5 2.5"/><path d="M9 3h6"/></svg> }
-function NoteIcon(p)    { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> }
-function SearchIcon(p)  { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> }
-function MenuIcon(p)    { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg> }
-function XIcon(p)       { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> }
-function SignOutIcon(p) { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg> }
-function MoonIcon(p)    { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg> }
-function SunIcon(p)     { return <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg> }
+// ── Top strip: identity, the date, coach, account ──────────────
+function TopBar({ onCoach }) {
+  const { user, signOut } = useAuth()
+  const { dark, toggle } = useTheme()
+  const [now, setNow] = useState(new Date())
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 20000); return () => clearInterval(t) }, [])
+
+  return (
+    <header className="w-full max-w-[1240px] mx-auto px-4 md:px-8 pt-4 md:pt-6 flex items-center gap-3"
+      style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
+      <NavLink to="/" className="font-serif text-[19px] font-semibold tracking-[-0.01em] mr-auto rounded-[6px]">
+        Mad Focus
+      </NavLink>
+      <span className="hidden sm:inline text-[13px] text-muted tnum">
+        {now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}, {now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+      </span>
+      <button onClick={onCoach} className="btn btn-quiet btn-sm hidden md:inline-flex" data-tip="Coach · C">
+        <Sparkles size={15} /> Coach
+      </button>
+      <Menu
+        label="Account"
+        trigger={p => (
+          <button {...p} aria-label="Account menu"
+            className="w-9 h-9 rounded-full bg-surface flex items-center justify-center text-[13px] font-semibold shadow-[inset_0_0_0_1px_var(--c-line)]">
+            {(user?.email || '?')[0].toUpperCase()}
+          </button>
+        )}
+        items={[
+          { heading: user?.email },
+          { label: dark ? 'Light appearance' : 'Dark appearance', icon: dark ? <Sun size={15} /> : <Moon size={15} />, onClick: toggle },
+          { divider: true },
+          { label: 'Sign out', icon: <LogOut size={15} />, onClick: signOut },
+        ]}
+      />
+    </header>
+  )
+}
+
+// ── Floating dock ──────────────────────────────────────────────
+function Dock({ onSearch, onCapture, onMore, captureOpen }) {
+  const focus = useFocus()
+  const location = useLocation()
+  const mobilePrimary = ['/', '/tasks', '/journal']
+  const inMore = !mobilePrimary.some(p => p === '/' ? location.pathname === '/' : location.pathname.startsWith(p))
+
+  return (
+    <>
+      {/* Desktop / tablet dock */}
+      <nav aria-label="Spaces"
+        className="hidden md:flex fixed left-1/2 -translate-x-1/2 z-[800] items-center gap-1 p-1.5 rounded-[18px] bg-surface shadow-float"
+        style={{ bottom: 'calc(18px + env(safe-area-inset-bottom))', height: 'var(--dock-h)' }}>
+        {SPACES.map(s => <DockLink key={s.to} space={s} />)}
+        <span className="w-px h-7 bg-line mx-1.5" aria-hidden />
+        <button onClick={onSearch} aria-label="Search and commands" data-tip="Search · ⌘K"
+          className="dock-btn"><Search size={19} /></button>
+        <FocusChip focus={focus} />
+        <button onClick={onCapture} aria-label="Capture" data-tip="Capture · N" aria-expanded={captureOpen}
+          className="ml-1 h-[50px] px-4 rounded-[13px] bg-accent text-accent-fg inline-flex items-center gap-2 font-semibold text-[14px]
+                     transition-transform duration-150 ease-out active:scale-[0.97]">
+          <Plus size={19} strokeWidth={2.4} /> <span className="hidden lg:inline">Capture</span>
+        </button>
+      </nav>
+
+      {/* Mobile tab bar */}
+      <nav aria-label="Spaces"
+        className="md:hidden fixed inset-x-0 bottom-0 z-[800] bg-surface border-t border-line-soft"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        {focus.started && (
+          <button onClick={focus.openOverlay}
+            className="absolute -top-11 left-1/2 -translate-x-1/2 h-9 px-3.5 rounded-full bg-live text-live-ink text-[13px] font-semibold inline-flex items-center gap-2 shadow-float tnum">
+            <span className={`w-1.5 h-1.5 rounded-full bg-live-ink ${focus.running ? 'pulse-live' : ''}`} />
+            {fmtClock(focus.remaining)} · {MODES[focus.mode].label}
+          </button>
+        )}
+        <div className="grid grid-cols-5 h-[var(--dock-h)]">
+          <MobileTab space={SPACES[0]} />
+          <MobileTab space={SPACES[1]} />
+          <div className="flex items-center justify-center">
+            <button onClick={onCapture} aria-label="Capture"
+              className="w-12 h-12 rounded-[15px] bg-accent text-accent-fg flex items-center justify-center active:scale-95 transition-transform">
+              <Plus size={22} strokeWidth={2.4} />
+            </button>
+          </div>
+          <MobileTab space={SPACES[4]} />
+          <button onClick={onMore} className="flex flex-col items-center justify-center gap-1 text-[11px] font-medium"
+            style={{ color: inMore ? 'var(--c-ink)' : 'var(--c-faint)' }}>
+            <MoreHorizontal size={21} /> More
+          </button>
+        </div>
+      </nav>
+    </>
+  )
+}
+
+function DockLink({ space }) {
+  const Icon = space.icon
+  return (
+    <NavLink to={space.to} end={space.to === '/'} data-tip={`${space.label} · ${space.key}`}
+      className={({ isActive }) => `relative h-[50px] rounded-[13px] inline-flex items-center gap-2 font-medium text-[14px]
+        transition-colors duration-150 ${isActive ? 'bg-sunken text-ink px-3.5' : 'text-muted hover:text-ink px-3'}`}
+      aria-label={space.label}>
+      {({ isActive }) => (
+        <>
+          <Icon size={19} style={{ color: isActive ? space.hue : undefined }} />
+          <span className={isActive ? 'inline' : 'hidden xl:inline'}>{space.label}</span>
+        </>
+      )}
+    </NavLink>
+  )
+}
+
+function MobileTab({ space }) {
+  const Icon = space.icon
+  return (
+    <NavLink to={space.to} end={space.to === '/'}
+      className="flex flex-col items-center justify-center gap-1 text-[11px] font-medium"
+      style={({ isActive }) => ({ color: isActive ? 'var(--c-ink)' : 'var(--c-faint)' })}>
+      {({ isActive }) => (<><Icon size={21} style={{ color: isActive ? space.hue : undefined }} />{space.label}</>)}
+    </NavLink>
+  )
+}
+
+function FocusChip({ focus }) {
+  if (!focus.started) {
+    return (
+      <button onClick={focus.openOverlay} aria-label="Focus timer" data-tip="Focus timer · F" className="dock-btn">
+        <Timer size={19} />
+      </button>
+    )
+  }
+  return (
+    <button onClick={focus.openOverlay} aria-label={`Focus timer, ${fmtClock(focus.remaining)} left`}
+      className="h-[50px] px-3.5 rounded-[13px] bg-live text-live-ink inline-flex items-center gap-2 font-semibold text-[14px] tnum">
+      <span className={`w-2 h-2 rounded-full bg-live-ink ${focus.running ? 'pulse-live' : 'opacity-40'}`} />
+      {fmtClock(focus.remaining)}
+    </button>
+  )
+}
+
+// ── Mobile "More" sheet ────────────────────────────────────────
+function MoreSheet({ open, onClose, onCoach, onSearch }) {
+  const focus = useFocus()
+  const { dark, toggle } = useTheme()
+  const { signOut } = useAuth()
+  const rest = SPACES.filter(s => !['/', '/tasks', '/journal'].includes(s.to))
+  return (
+    <Sheet open={open} onClose={onClose} title="More">
+      <div className="grid grid-cols-2 gap-2 mb-4">
+        {rest.map(s => {
+          const Icon = s.icon
+          return (
+            <NavLink key={s.to} to={s.to} className="panel h-[72px] px-4 flex items-center gap-3 font-medium text-[15px]">
+              <Icon size={20} style={{ color: s.hue }} /> {s.label}
+            </NavLink>
+          )
+        })}
+      </div>
+      <div className="flex flex-col">
+        <MoreRow icon={<Sparkles size={18} />} label="Coach" onClick={onCoach} />
+        <MoreRow icon={<Timer size={18} />} label="Focus timer" onClick={() => { onClose(); focus.openOverlay() }} />
+        <MoreRow icon={<Search size={18} />} label="Search" onClick={onSearch} />
+        <MoreRow icon={dark ? <Sun size={18} /> : <Moon size={18} />} label={dark ? 'Light appearance' : 'Dark appearance'} onClick={toggle} />
+        <MoreRow icon={<LogOut size={18} />} label="Sign out" onClick={signOut} />
+      </div>
+    </Sheet>
+  )
+}
+function MoreRow({ icon, label, onClick }) {
+  return (
+    <button onClick={onClick} className="row row-hover text-[15px] text-left">
+      <span className="text-muted">{icon}</span>{label}
+    </button>
+  )
+}
