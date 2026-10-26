@@ -67,7 +67,7 @@ export async function saveWriting(existing, date, chapters, words) {
     emit('writing')
     return null
   }
-  await dbRun('Save writing', () => sb.from('writing_logs').upsert(row, { onConflict: 'date' }))
+  await dbRun('Save writing', () => sb.from('writing_logs').upsert(row, { onConflict: 'user_id,date' }))
   emit('writing')
   return row
 }

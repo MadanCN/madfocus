@@ -71,7 +71,7 @@ export default function Journal() {
       values_alignment: f.values_alignment, gratitude: f.gratitude, tomorrow_priority: f.tomorrow_priority,
       content: f.content, created_at: rowRef.current.created_at, updated_at: nowIso(),
     }
-    await dbRun('Save journal', () => sb.from('journal_entries').upsert(row, { onConflict: 'date' }))
+    await dbRun('Save journal', () => sb.from('journal_entries').upsert(row, { onConflict: 'user_id,date' }))
     setEntries(p => [row, ...(p || []).filter(e => e.date !== d)])
   }, 900)
 

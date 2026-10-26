@@ -5,6 +5,7 @@ import { sb, dbRun } from '../lib/supabase'
 import { uid, today, addDays, streakFrom } from '../lib/utils'
 import { patchToRow } from '../lib/tasks'
 import { emit } from '../lib/bus'
+import { api } from '../lib/api'
 
 const STARTERS = [
   'What should I do first today?',
@@ -92,15 +93,11 @@ export default function CoachDrawer({ open, onClose }) {
     setBusy(true)
     try {
       const context = ctx || await buildContext()
-      const res = await fetch('/api/assistant', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q, context }),
-      })
-      const data = await res.json()
+      const data = await api('assistant', { body: { question: q, context } })
       const reply = data.reply || 'I couldn’t come up with an answer. Try asking another way.'
       setMsgs(p => [...p, { id: uid(), role: 'assistant', text: reply, suggestions: extractTasks(reply) }])
-    } catch {
-      setMsgs(p => [...p, { id: uid(), role: 'assistant', text: 'I can’t reach the coach right now. Check your connection and try again.' }])
+    } catch (e) {
+      setMsgs(p => [...p, { id: uid(), role: 'assistant', text: e.status === 429 ? 'You’ve asked a lot in a short time. Give it a few minutes and try again.' : e.message || 'I can’t reach the coach right now. Check your connection and try again.' }])
     } finally {
       setBusy(false)
       inputRef.current?.focus()

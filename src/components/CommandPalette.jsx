@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
-import { Search, Plus, StickyNote, Timer, Pause, Sparkles, Moon, Sun, ListChecks, Target, BookOpen, CornerDownLeft } from 'lucide-react'
+import { Search, Plus, StickyNote, Timer, Pause, Sparkles, Moon, Sun, ListChecks, Target, BookOpen, CornerDownLeft, Settings as SettingsIcon, ShieldCheck } from 'lucide-react'
 import { sb } from '../lib/supabase'
 import { useLayer, useToast } from './ui'
 import { SPACES } from '../lib/spaces'
 import { useFocus } from '../contexts/FocusContext'
 import { useTheme } from '../contexts/ThemeContext'
+import { useAuth } from '../contexts/AuthContext'
 import { createTask } from '../lib/tasks'
 import { parseTask } from '../lib/parse'
 import { relDay } from '../lib/utils'
@@ -32,6 +33,7 @@ export default function CommandPalette({ open, onClose, onCapture, onCoach, onOp
   const toast = useToast()
   const focus = useFocus()
   const { dark, toggle } = useTheme()
+  const { isAdmin } = useAuth()
   useLayer(open, onClose)
 
   useEffect(() => {
@@ -78,7 +80,9 @@ export default function CommandPalette({ open, onClose, onCapture, onCoach, onOp
         : { icon: Timer, label: focus.started ? 'Resume focus timer' : 'Start a focus session', hint: 'F', run: go(() => { focus.start(); focus.openOverlay() }) },
       { icon: Sparkles, label: 'Ask the coach', hint: 'C', run: go(onCoach) },
       { icon: dark ? Sun : Moon, label: dark ? 'Switch to light appearance' : 'Switch to dark appearance', run: go(toggle) },
-    ]
+      { icon: SettingsIcon, label: 'Settings', run: go(() => navigate('/settings')) },
+      isAdmin && { icon: ShieldCheck, label: 'Admin console', run: go(() => navigate('/admin')) },
+    ].filter(Boolean)
     const min = query ? 2 : 1
     actions.filter(a => score(a.label, query) >= min).forEach(a => out.push({ group: 'Actions', ...a }))
 
@@ -94,7 +98,7 @@ export default function CommandPalette({ open, onClose, onCapture, onCoach, onOp
       rank(data.books).slice(0, 4).forEach(b => out.push({ group: 'Books', icon: BookOpen, label: b.title, run: go(() => navigate(`/library/book/${b.id}`)) }))
     }
     return out
-  }, [q, data, focus.running, focus.started, dark])
+  }, [q, data, focus.running, focus.started, dark, isAdmin])
 
   useEffect(() => { setSel(0) }, [q])
   useEffect(() => {

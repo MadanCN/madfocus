@@ -9,7 +9,17 @@ if (!url || !anon) {
   )
 }
 
-export const sb = createClient(url, anon)
+export const sb = createClient(url, anon, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+})
+
+// Checks a password without touching the current session (keeps 2-step status)
+export async function verifyPassword(email, password) {
+  const temp = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'mf-verify' } })
+  const { error } = await temp.auth.signInWithPassword({ email, password })
+  if (!error) await temp.auth.signOut({ scope: 'local' }).catch(() => {})
+  return !error
+}
 
 // ── Generic write helper ──
 // Usage: await dbRun('Save task', () => sb.from('tasks').upsert(row))

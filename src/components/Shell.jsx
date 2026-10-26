@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { Sun, Plus, Search, Sparkles, Timer, Moon, LogOut, MoreHorizontal } from 'lucide-react'
+import { Sun, Plus, Search, Sparkles, Timer, Moon, LogOut, MoreHorizontal, Settings, ShieldCheck } from 'lucide-react'
 import { SPACES } from '../lib/spaces'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
@@ -98,8 +98,9 @@ export default function Shell({ children }) {
 
 // ── Top strip: identity, the date, coach, account ──────────────
 function TopBar({ onCoach }) {
-  const { user, signOut } = useAuth()
+  const { user, profile, isAdmin, signOut } = useAuth()
   const { dark, toggle } = useTheme()
+  const navigate = useNavigate()
   const [now, setNow] = useState(new Date())
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 20000); return () => clearInterval(t) }, [])
 
@@ -125,9 +126,11 @@ function TopBar({ onCoach }) {
         )}
         items={[
           { heading: user?.email },
+          { label: 'Settings', icon: <Settings size={15} />, onClick: () => navigate('/settings') },
+          isAdmin && { label: 'Admin console', icon: <ShieldCheck size={15} />, onClick: () => navigate('/admin') },
           { label: dark ? 'Light appearance' : 'Dark appearance', icon: dark ? <Sun size={15} /> : <Moon size={15} />, onClick: toggle },
           { divider: true },
-          { label: 'Sign out', icon: <LogOut size={15} />, onClick: signOut },
+          { label: 'Sign out', icon: <LogOut size={15} />, onClick: () => signOut() },
         ]}
       />
     </header>
@@ -239,7 +242,8 @@ function FocusChip({ focus }) {
 function MoreSheet({ open, onClose, onCoach, onSearch }) {
   const focus = useFocus()
   const { dark, toggle } = useTheme()
-  const { signOut } = useAuth()
+  const { signOut, isAdmin } = useAuth()
+  const navigate = useNavigate()
   const rest = SPACES.filter(s => !['/', '/tasks', '/journal'].includes(s.to))
   return (
     <Sheet open={open} onClose={onClose} title="More">
@@ -258,7 +262,9 @@ function MoreSheet({ open, onClose, onCoach, onSearch }) {
         <MoreRow icon={<Timer size={18} />} label="Focus timer" onClick={() => { onClose(); focus.openOverlay() }} />
         <MoreRow icon={<Search size={18} />} label="Search" onClick={onSearch} />
         <MoreRow icon={dark ? <Sun size={18} /> : <Moon size={18} />} label={dark ? 'Light appearance' : 'Dark appearance'} onClick={toggle} />
-        <MoreRow icon={<LogOut size={18} />} label="Sign out" onClick={signOut} />
+        <MoreRow icon={<Settings size={18} />} label="Settings" onClick={() => navigate('/settings')} />
+        {isAdmin && <MoreRow icon={<ShieldCheck size={18} />} label="Admin console" onClick={() => navigate('/admin')} />}
+        <MoreRow icon={<LogOut size={18} />} label="Sign out" onClick={() => signOut()} />
       </div>
     </Sheet>
   )
