@@ -4,7 +4,8 @@ import { SaveState, PageLoader, useToast } from '../components/ui'
 import { sb, dbRun } from '../lib/supabase'
 import { useAutosave } from '../lib/useAutosave'
 import { createTask } from '../lib/tasks'
-import { uid, today, addDays, parseYmd, relDay, nowIso, daysBetween } from '../lib/utils'
+import { uid, today, addDays, parseYmd, relDay, nowIso, daysBetween, weekOffset, weekdayLabels } from '../lib/utils'
+import { useAuth } from '../contexts/AuthContext'
 
 const CODES = [
   { id: 'kind',     title: 'Be kind',               text: 'You don’t know what another person is going through. We see the choices people make, but not the options they had. Always choose kindness and be slow to judge.' },
@@ -285,6 +286,7 @@ function FreeWrite({ editorRef, onChange }) {
 }
 
 function MonthPicker({ date, entryDates, onPick, onClose }) {
+  const mondayFirst = useAuth().profile?.week_starts_monday !== false
   const [view, setView] = useState(() => { const d = parseYmd(date); return new Date(d.getFullYear(), d.getMonth(), 1) })
   const ref = useRef(null)
   useEffect(() => {
@@ -295,7 +297,7 @@ function MonthPicker({ date, entryDates, onPick, onClose }) {
     return () => { document.removeEventListener('pointerdown', h); document.removeEventListener('keydown', k) }
   }, [])
   const y = view.getFullYear(), m = view.getMonth()
-  const offset = (new Date(y, m, 1).getDay() + 6) % 7
+  const offset = weekOffset(new Date(y, m, 1), mondayFirst)
   const days = new Date(y, m + 1, 0).getDate()
   const t = today()
   const isCurrent = y === new Date().getFullYear() && m === new Date().getMonth()
@@ -306,7 +308,7 @@ function MonthPicker({ date, entryDates, onPick, onClose }) {
         <span className="flex-1 text-center text-[14px] font-semibold">{view.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</span>
         <button onClick={() => setView(new Date(y, m + 1, 1))} disabled={isCurrent} className="btn btn-quiet btn-sm btn-icon" aria-label="Next month"><ChevronRight size={16} /></button>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-faint mb-1">{['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => <span key={i}>{d}</span>)}</div>
+      <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-faint mb-1">{weekdayLabels(mondayFirst).map((d, i) => <span key={i}>{d}</span>)}</div>
       <div className="grid grid-cols-7 gap-1">
         {Array.from({ length: offset }).map((_, i) => <span key={'e' + i} />)}
         {Array.from({ length: days }, (_, i) => {

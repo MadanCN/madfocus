@@ -6,7 +6,8 @@ import {
 import { Dialog, Sheet, Menu, Seg, Stars, Empty, PageLoader, SaveState, Ring, useToast, useConfirm } from '../components/ui'
 import { sb, dbRun } from '../lib/supabase'
 import { useAutosave } from '../lib/useAutosave'
-import { uid, today, fmtDay, fmtMinutes, fmtClock, plural, parseYmd, nowIso } from '../lib/utils'
+import { uid, today, fmtDay, fmtMinutes, fmtClock, plural, parseYmd, nowIso, weekOffset, weekdayLabels } from '../lib/utils'
+import { useAuth } from '../contexts/AuthContext'
 
 const STATUS = { unread: 'Want to read', reading: 'Reading', completed: 'Finished', paused: 'Paused' }
 
@@ -262,9 +263,10 @@ function SeriesGrid({ data }) {
 }
 
 function ReadingCalendar({ data }) {
+  const mondayFirst = useAuth().profile?.week_starts_monday !== false
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1) })
   const y = month.getFullYear(), m = month.getMonth()
-  const offset = (new Date(y, m, 1).getDay() + 6) % 7
+  const offset = weekOffset(new Date(y, m, 1), mondayFirst)
   const days = new Date(y, m + 1, 0).getDate()
   const byDate = {}
   data.sessions.forEach(s => {
@@ -282,7 +284,7 @@ function ReadingCalendar({ data }) {
         <button onClick={() => setMonth(new Date(y, m + 1, 1))} className="btn btn-outline btn-icon btn-sm" aria-label="Next month"><ChevronRight size={16} /></button>
         <span className="ml-auto text-[13px] text-muted">{monthMins ? `${fmtMinutes(monthMins)} read this month` : 'No reading logged this month'}</span>
       </div>
-      <div className="grid grid-cols-7 gap-1.5 text-center text-[12px] text-faint mb-1.5">{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => <span key={d}>{d}</span>)}</div>
+      <div className="grid grid-cols-7 gap-1.5 text-center text-[12px] text-faint mb-1.5">{weekdayLabels(mondayFirst, 'short').map(d => <span key={d}>{d}</span>)}</div>
       <div className="grid grid-cols-7 gap-1.5">
         {Array.from({ length: offset }).map((_, i) => <div key={'e' + i} />)}
         {Array.from({ length: days }, (_, i) => {

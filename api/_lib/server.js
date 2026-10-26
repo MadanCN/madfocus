@@ -5,7 +5,38 @@ import { createClient } from '@supabase/supabase-js'
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 const ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
-export const APP_URL = (process.env.APP_URL || '').replace(/\/$/, '')
+// "madfocus.app", "https://madfocus.app/", "HTTPS://MadFocus.app" → "https://madfocus.app"
+function normOrigin(v) {
+  if (!v) return null
+  let s = String(v).trim()
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s
+  try { const u = new URL(s); return `${u.protocol}//${u.host}`.toLowerCase() } catch { return null }
+}
+const bareHost = o => o.replace(/^https?:\/\//, '').replace(/^www\./, '')
+
+export const APP_URL = normOrigin(process.env.APP_URL) || ''
+
+// Every address this deployment answers on: APP_URL, extra ALLOWED_ORIGINS,
+// and the URLs Vercel injects (production, branch and per-deployment).
+const ALLOWED_ORIGINS = [
+  process.env.APP_URL,
+  ...(process.env.ALLOWED_ORIGINS || '').split(','),
+  process.env.VERCEL_PROJECT_PRODUCTION_URL,
+  process.env.VERCEL_BRANCH_URL,
+  process.env.VERCEL_URL,
+].map(normOrigin).filter(Boolean)
+
+// Same-origin check. Requests are authenticated with a bearer token (not cookies),
+// so this is defence in depth against other sites driving the API.
+export function checkOrigin(req) {
+  const origin = normOrigin(req.headers.origin)
+  if (!origin) return // same-origin GETs and server-to-server calls send no Origin
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim().toLowerCase()
+  if (host && bareHost(origin) === host.replace(/^www\./, '')) return
+  if (ALLOWED_ORIGINS.some(a => bareHost(a) === bareHost(origin))) return
+  console.warn('[origin] blocked', origin, 'host', host, 'allowed', ALLOWED_ORIGINS)
+  throw new HttpError(403, `Requests from ${origin} aren’t allowed. Set APP_URL (or ALLOWED_ORIGINS) in Vercel to this address.`)
+}
 
 export class HttpError extends Error {
   constructor(status, message, code) { super(message); this.status = status; this.code = code }
@@ -91,8 +122,7 @@ export function route(methods, fn) {
     res.setHeader('X-Content-Type-Options', 'nosniff')
     try {
       if (!methods.includes(req.method)) throw new HttpError(405, 'Method not allowed.')
-      const origin = req.headers.origin
-      if (origin && origin !== appUrl(req)) throw new HttpError(403, 'Cross-origin requests are not allowed.')
+      checkOrigin(req)
       const raw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {})
       if (raw.length > 64 * 1024) throw new HttpError(413, 'Request is too large.')
       const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {})

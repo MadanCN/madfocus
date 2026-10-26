@@ -78,9 +78,10 @@ export function greeting(date = new Date()) {
   return 'Good evening'
 }
 
-export function firstName(user) {
+export function firstName(user, profile) {
+  if (profile?.preferred_name?.trim()) return profile.preferred_name.trim()
   const meta = user?.user_metadata || {}
-  const raw = meta.first_name || meta.name || meta.full_name || (user?.email || '').split('@')[0]
+  const raw = profile?.full_name || meta.first_name || meta.name || meta.full_name || (user?.email || '').split('@')[0]
   const first = String(raw).split(/[\s._-]+/)[0] || ''
   return first ? first[0].toUpperCase() + first.slice(1) : ''
 }
@@ -102,3 +103,18 @@ export const PRIORITIES = {
   P4: { label: 'Low',    short: 'P4', color: 'var(--c-faint)' },
 }
 export const PRIORITY_ORDER = { P1: 0, P2: 1, P3: 2, P4: 3 }
+
+export function initials(user, profile) {
+  const n = (profile?.preferred_name || profile?.full_name || '').trim()
+  if (n) return n.split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+  return (user?.email || '?')[0].toUpperCase()
+}
+
+// Calendars honour the person's "weeks start on" preference
+export function weekOffset(date, mondayFirst = true) {
+  return mondayFirst ? (date.getDay() + 6) % 7 : date.getDay()
+}
+export function weekdayLabels(mondayFirst = true, style = 'narrow') {
+  const base = style === 'short' ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] : ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+  return mondayFirst ? [...base.slice(1), base[0]] : base
+}

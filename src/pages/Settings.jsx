@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { ShieldCheck, ShieldOff, Download, Trash2, LogOut, Moon, Sun, KeyRound, Mail, User } from 'lucide-react'
+import { ShieldCheck, ShieldOff, Download, Trash2, LogOut, Moon, Sun, KeyRound, Mail, User, Camera, Check, SlidersHorizontal } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 import { sb, verifyPassword } from '../lib/supabase'
@@ -8,19 +8,21 @@ import { useAutosave } from '../lib/useAutosave'
 import { Dialog, SaveState, useToast, useConfirm } from '../components/ui'
 import { FormError, SubmitButton, PasswordInput, NewPasswordFields, passwordCheck, MfaEnroll, MfaChallenge } from '../components/auth'
 import { EMAIL_RE } from '../lib/validate'
+import { Avatar } from '../components/Shell'
 
 export default function Settings() {
   return (
     <div className="max-w-[760px] mx-auto px-4 md:px-8 pt-8 md:pt-12">
       <header className="mb-10">
         <h1 className="h-page">Settings</h1>
-        <p className="text-[14px] text-muted mt-1">Your account, security and data.</p>
+        <p className="text-[14px] text-muted mt-1">Your profile, preferences, security and data. Changes save as you go.</p>
       </header>
       <div className="flex flex-col gap-12">
         <Profile />
+        <Preferences />
+        <Account />
         <Password />
         <TwoStep />
-        <Appearance />
         <Data />
       </div>
     </div>
@@ -42,20 +44,160 @@ function Section({ icon: Icon, title, lead, children }) {
   )
 }
 
-function Profile() {
-  const { user, profile, setProfile } = useAuth()
+const ACCENTS = [
+  { id: 'cobalt', label: 'Cobalt', light: '#2B45E0', dark: '#8D9DFF' },
+  { id: 'moss',   label: 'Moss',   light: '#2C7A4C', dark: '#62CC8F' },
+  { id: 'plum',   label: 'Plum',   light: '#6E3FC7', dark: '#B691FF' },
+  { id: 'rose',   label: 'Rose',   light: '#B3325D', dark: '#FF8DB0' },
+  { id: 'ochre',  label: 'Ochre',  light: '#94570A', dark: '#F2B23E' },
+  { id: 'teal',   label: 'Teal',   light: '#0F7380', dark: '#4FD0DA' },
+]
+const PRONOUNS = ['she/her', 'he/him', 'they/them']
+
+// One autosave pipe for every profile field
+function useProfileSave() {
+  const { user, setProfile } = useAuth()
   const toast = useToast()
-  const [name, setName] = useState(profile?.full_name || '')
+  const save = useAutosave(async (id, patch) => {
+    const { error } = await sb.from('profiles').update(patch).eq('id', id)
+    if (error) { toast('Couldn’t save your profile. Check the field limits and try again.', 'error'); throw error }
+  }, 700)
+  return { ...save, set: patch => { setProfile(x => ({ ...x, ...patch })); save.queue(user.id, patch) } }
+}
+
+function Field({ id, label, hint, count, max, children }) {
+  return (
+    <div>
+      <div className="flex items-baseline gap-2">
+        <label className="label" htmlFor={id}>{label}</label>
+        {max && <span className="ml-auto text-[12px] tnum" style={{ color: count > max * 0.9 ? 'var(--c-warn)' : 'var(--c-faint)' }}>{count}/{max}</span>}
+      </div>
+      {children}
+      {hint && <p className="text-[12.5px] text-faint mt-1.5">{hint}</p>}
+    </div>
+  )
+}
+
+function Profile() {
+  const { user, profile } = useAuth()
+  const { set, status, retry } = useProfileSave()
+  const p = profile || {}
+  const shown = p.preferred_name || p.full_name || user.email.split('@')[0]
+
+  return (
+    <Section icon={User} title="Profile" lead="How Mad Focus greets you, and what the coach knows about you.">
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center gap-4">
+          <AvatarPicker set={set} />
+          <div className="min-w-0 flex-1">
+            <p className="font-serif text-[22px] leading-tight font-medium truncate">{shown}{p.pronouns && <span className="text-[14px] font-sans text-muted font-normal"> ({p.pronouns})</span>}</p>
+            {(p.headline || p.location)
+              ? <p className="text-[13.5px] text-muted mt-1 truncate">{[p.headline, p.location].filter(Boolean).join(', ')}</p>
+              : <p className="text-[13.5px] text-faint mt-1">Add a headline and where you’re based.</p>}
+          </div>
+          <SaveState status={status} onRetry={retry} className="self-start" />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field id="p-full" label="Full name">
+            <input id="p-full" className="input" value={p.full_name || ''} maxLength={120} autoComplete="name"
+              onChange={e => set({ full_name: e.target.value })} />
+          </Field>
+          <Field id="p-pref" label="What should we call you?" hint="Used in greetings. Leave blank to use your first name.">
+            <input id="p-pref" className="input" value={p.preferred_name || ''} maxLength={60} placeholder={(p.full_name || '').split(' ')[0]}
+              onChange={e => set({ preferred_name: e.target.value })} />
+          </Field>
+          <Field id="p-pro" label="Pronouns" hint="Optional.">
+            <input id="p-pro" className="input" value={p.pronouns || ''} maxLength={40} list="pronoun-list"
+              onChange={e => set({ pronouns: e.target.value })} />
+            <datalist id="pronoun-list">{PRONOUNS.map(x => <option key={x} value={x} />)}</datalist>
+          </Field>
+          <Field id="p-loc" label="Where you’re based">
+            <input id="p-loc" className="input" value={p.location || ''} maxLength={80} placeholder="Bengaluru, India"
+              onChange={e => set({ location: e.target.value })} />
+          </Field>
+          <div className="sm:col-span-2">
+            <Field id="p-head" label="Headline" count={(p.headline || '').length} max={120}>
+              <input id="p-head" className="input" value={p.headline || ''} maxLength={120} placeholder="Novelist and healthtech founder"
+                onChange={e => set({ headline: e.target.value })} />
+            </Field>
+          </div>
+          <div className="sm:col-span-2">
+            <Field id="p-bio" label="About you" count={(p.bio || '').length} max={600}
+              hint="What you’re working towards and how you like to work. The coach reads this to tailor its advice. Only you can see it.">
+              <textarea id="p-bio" className="input min-h-[110px]" value={p.bio || ''} maxLength={600}
+                placeholder="Writing book two of a fantasy series while building a healthtech company. Best focus before noon."
+                onChange={e => set({ bio: e.target.value })} />
+            </Field>
+          </div>
+        </div>
+      </div>
+    </Section>
+  )
+}
+
+function AvatarPicker({ set }) {
+  const { user, profile } = useAuth()
+  const confirm = useConfirm()
+  const toast = useToast()
+  const input = React.useRef(null)
+
+  function pick(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!/^image\/(png|jpe?g|webp)$/i.test(file.type)) return toast('Choose a PNG, JPEG or WebP image.', 'error')
+    if (file.size > 15 * 1024 * 1024) return toast('That image is over 15 MB. Choose a smaller one.', 'error')
+    const reader = new FileReader()
+    reader.onload = ev => {
+      const img = new Image()
+      img.onload = () => {
+        // Centre-crop to a square and shrink to 320px so it stays small
+        const side = Math.min(img.width, img.height), out = 320
+        const c = document.createElement('canvas'); c.width = out; c.height = out
+        c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, out, out)
+        const url = c.toDataURL('image/jpeg', 0.85)
+        if (url.length > 200000) return toast('That image is too detailed to use. Try another.', 'error')
+        set({ avatar_url: url })
+        toast('Photo updated')
+      }
+      img.onerror = () => toast('Couldn’t read that image.', 'error')
+      img.src = ev.target.result
+    }
+    reader.readAsDataURL(file)
+  }
+
+  async function remove() {
+    const ok = await confirm({ title: 'Remove your photo?', body: 'Your initials will show instead.', confirmLabel: 'Remove photo' })
+    if (ok) set({ avatar_url: null })
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-1.5 flex-shrink-0">
+      <button type="button" onClick={() => input.current?.click()} className="relative group rounded-full" aria-label={profile?.avatar_url ? 'Change photo' : 'Add a photo'}>
+        <Avatar user={user} profile={profile} size={72} />
+        <span className="absolute inset-0 rounded-full bg-black/45 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity"><Camera size={20} /></span>
+      </button>
+      {profile?.avatar_url
+        ? <button type="button" onClick={remove} className="text-[12px] text-muted hover:text-danger">Remove</button>
+        : <button type="button" onClick={() => input.current?.click()} className="text-[12px] text-accent font-medium">Add photo</button>}
+      <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" tabIndex={-1} onChange={pick} aria-label="Upload a photo" />
+    </div>
+  )
+}
+
+function Account() {
+  const { user } = useAuth()
+  const toast = useToast()
   const [email, setEmail] = useState('')
   const [busy, setBusy] = useState(false)
-  const { queue, status, retry } = useAutosave((id, p) => sb.from('profiles').update(p).eq('id', id).then(r => { if (r.error) throw r.error }), 700)
 
   async function changeEmail(e) {
     e.preventDefault()
     const next = email.trim().toLowerCase()
     if (!EMAIL_RE.test(next) || next === user.email || busy) return
     setBusy(true)
-    const { error } = await sb.auth.updateUser({ email: next }, { emailRedirectTo: `${window.location.origin}/settings` })
+    const { error } = await sb.auth.updateUser({ email: next }, { emailRedirectTo: window.location.origin + '/settings' })
     setBusy(false)
     if (error) return toast(/rate/i.test(error.message) ? 'Too many requests. Try again later.' : error.message, 'error')
     setEmail('')
@@ -63,22 +205,75 @@ function Profile() {
   }
 
   return (
-    <Section icon={User} title="Profile">
-      <div className="flex flex-col gap-5">
-        <div>
-          <div className="flex items-baseline"><label className="label" htmlFor="pname">Name</label><SaveState status={status} onRetry={retry} className="ml-auto" /></div>
-          <input id="pname" className="input" value={name} maxLength={120} placeholder="Your name"
-            onChange={e => { setName(e.target.value); setProfile(p => ({ ...p, full_name: e.target.value })); queue(user.id, { full_name: e.target.value }) }} />
+    <Section icon={Mail} title="Email">
+      <form onSubmit={changeEmail}>
+        <p className="text-[14px] mb-3">You sign in with <span className="font-medium">{user.email}</span></p>
+        <div className="flex gap-2">
+          <input id="pemail" type="email" className="input" placeholder="New email address" aria-label="New email address" value={email} onChange={e => setEmail(e.target.value)} />
+          <button type="submit" disabled={!EMAIL_RE.test(email.trim()) || busy} className="btn btn-outline flex-shrink-0">Change</button>
         </div>
-        <form onSubmit={changeEmail}>
-          <label className="label" htmlFor="pemail">Email</label>
-          <p className="text-[14px] mb-2">{user.email}</p>
-          <div className="flex gap-2">
-            <input id="pemail" type="email" className="input" placeholder="New email address" value={email} onChange={e => setEmail(e.target.value)} />
-            <button type="submit" disabled={!EMAIL_RE.test(email.trim()) || busy} className="btn btn-outline flex-shrink-0"><Mail size={15} /> Change</button>
+        <p className="text-[12.5px] text-faint mt-2">We’ll send a confirmation link to both addresses.</p>
+      </form>
+    </Section>
+  )
+}
+
+function Preferences() {
+  const { profile } = useAuth()
+  const { dark, toggle } = useTheme()
+  const { set, status, retry } = useProfileSave()
+  const p = profile || {}
+  const accent = p.accent || 'cobalt'
+  return (
+    <Section icon={SlidersHorizontal} title="Preferences">
+      <div className="flex flex-col gap-6">
+        <div className="flex items-start gap-3">
+          <div className="flex-1">
+            <span className="label">Appearance</span>
+            <div className="seg" role="group" aria-label="Appearance">
+              <button aria-pressed={!dark} onClick={() => dark && toggle()}><span className="inline-flex items-center gap-1.5"><Sun size={14} /> Light</span></button>
+              <button aria-pressed={dark} onClick={() => !dark && toggle()}><span className="inline-flex items-center gap-1.5"><Moon size={14} /> Dark</span></button>
+            </div>
           </div>
-          <p className="text-[12.5px] text-faint mt-2">We’ll send a confirmation link to both addresses.</p>
-        </form>
+          <SaveState status={status} onRetry={retry} />
+        </div>
+
+        <div>
+          <span className="label" id="accent-label">Accent colour</span>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-labelledby="accent-label">
+            {ACCENTS.map(a => (
+              <button key={a.id} role="radio" aria-checked={accent === a.id} onClick={() => set({ accent: a.id })}
+                className="h-10 pl-1.5 pr-3.5 rounded-full inline-flex items-center gap-2 text-[13.5px] transition-shadow"
+                style={{ boxShadow: accent === a.id ? 'inset 0 0 0 2px ' + (dark ? a.dark : a.light) : 'inset 0 0 0 1px var(--c-line)' }}>
+                <span className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: dark ? a.dark : a.light }}>
+                  {accent === a.id && <Check size={14} strokeWidth={3} color={dark ? '#0F1420' : '#fff'} />}
+                </span>
+                {a.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field id="pf-len" label="Focus session length" hint="What the timer starts at.">
+            <select id="pf-len" className="input" value={p.focus_minutes || 25} onChange={e => set({ focus_minutes: +e.target.value })}>
+              {[15, 20, 25, 30, 45, 50, 60, 90].map(m => <option key={m} value={m}>{m} minutes</option>)}
+            </select>
+          </Field>
+          <Field id="pf-goal" label="Daily focus goal" hint="Shown on Today. Choose None to hide it.">
+            <select id="pf-goal" className="input" value={p.daily_focus_goal ?? 120} onChange={e => set({ daily_focus_goal: +e.target.value })}>
+              <option value={0}>None</option>
+              {[30, 60, 90, 120, 180, 240, 300, 360, 480].map(m => <option key={m} value={m}>{m < 60 ? m + ' minutes' : (m / 60) + (m === 60 ? ' hour' : ' hours')}</option>)}
+            </select>
+          </Field>
+          <div>
+            <span className="label">Weeks start on</span>
+            <div className="seg" role="group" aria-label="Weeks start on">
+              <button aria-pressed={p.week_starts_monday !== false} onClick={() => set({ week_starts_monday: true })}>Monday</button>
+              <button aria-pressed={p.week_starts_monday === false} onClick={() => set({ week_starts_monday: false })}>Sunday</button>
+            </div>
+          </div>
+        </div>
       </div>
     </Section>
   )
@@ -162,18 +357,6 @@ function TwoStep() {
             : <button onClick={() => setMode('enroll')} className="btn btn-primary btn-sm ml-auto">Set up</button>}
         </div>
       )}
-    </Section>
-  )
-}
-
-function Appearance() {
-  const { dark, toggle } = useTheme()
-  return (
-    <Section icon={dark ? Moon : Sun} title="Appearance">
-      <div className="seg" role="group" aria-label="Appearance">
-        <button aria-pressed={!dark} onClick={() => dark && toggle()}><span className="inline-flex items-center gap-1.5"><Sun size={14} /> Light</span></button>
-        <button aria-pressed={dark} onClick={() => !dark && toggle()}><span className="inline-flex items-center gap-1.5"><Moon size={14} /> Dark</span></button>
-      </div>
     </Section>
   )
 }

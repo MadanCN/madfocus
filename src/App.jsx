@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from 'react'
+import React, { Suspense, lazy, useEffect } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Shell from './components/Shell'
 import { ToastProvider, ConfirmProvider, PageLoader } from './components/ui'
@@ -23,6 +23,14 @@ function Gate() {
   const { user, profile, loading, needsMfa, recovery } = useAuth()
   const { pathname } = useLocation()
 
+  // Personal accent colour (cached so the next load paints it immediately)
+  useEffect(() => {
+    const a = profile?.accent && profile.accent !== 'cobalt' ? profile.accent : null
+    if (a) document.documentElement.setAttribute('data-accent', a)
+    else document.documentElement.removeAttribute('data-accent')
+    try { a ? localStorage.setItem('mf-accent', a) : localStorage.removeItem('mf-accent') } catch {}
+  }, [profile?.accent])
+
   if (loading) return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-4">
       <p className="font-serif text-[22px] font-semibold">Mad Focus</p>
@@ -39,7 +47,7 @@ function Gate() {
   if (!profile || profile.status !== 'active') return <AccountBlocked status={profile?.status} />
 
   return (
-    <FocusProvider>
+    <FocusProvider defaultMinutes={profile.focus_minutes || 25}>
       <Shell>
         <Suspense fallback={<PageLoader />}>
           <Routes>

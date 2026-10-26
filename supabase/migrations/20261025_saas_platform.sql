@@ -367,7 +367,17 @@ end $$;
 
 -- Profiles: read your own (admins read all after 2-step), edit only safe columns
 grant select on public.profiles to authenticated;
-grant update (full_name, timezone, onboarded) on public.profiles to authenticated;
+-- Signed-in people may edit every profile column except the protected ones
+do $$
+declare cols text;
+begin
+  select string_agg(quote_ident(column_name), ', ') into cols
+  from information_schema.columns
+  where table_schema = 'public' and table_name = 'profiles'
+    and column_name not in ('id', 'email', 'role', 'status', 'plan', 'created_at', 'last_seen_at');
+  execute format('revoke update on public.profiles from authenticated');
+  execute format('grant update (%s) on public.profiles to authenticated', cols);
+end $$;
 create policy profile_self_select on public.profiles for select to authenticated
   using (id = (select auth.uid()) or ((select public.is_admin()) and (select public.is_mfa_verified())));
 create policy profile_self_update on public.profiles for update to authenticated

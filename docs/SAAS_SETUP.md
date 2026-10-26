@@ -4,7 +4,10 @@ Do these in order. Each step is required unless marked optional.
 
 ## 1. Database (Supabase → SQL editor)
 
-Run `supabase/migrations/20261025_saas_platform.sql` once. It is safe to re-run.
+Run these once, in order. Both are safe to re-run.
+
+1. `supabase/migrations/20261025_saas_platform.sql`
+2. `supabase/migrations/20261026_profile_fields.sql` (photo, preferred name, pronouns, headline, bio, location, accent colour, focus preferences)
 
 It removes the old `"anon all"` policies (which let anyone with the public key read every row), adds strict per-user row-level security, profiles, roles, invitations, an audit log and rate limits, and makes `madancn03@gmail.com` the admin.
 
@@ -56,7 +59,8 @@ Without `RESEND_API_KEY`, invites and resets still work, but they're sent by Sup
 | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | Browser (safe, protected by RLS) |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY` | Server |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only. Never prefix it with `VITE_`. |
-| `APP_URL` | Email links and the same-origin check |
+| `APP_URL` | Email links and the same-origin check. `https://` is optional; `www.` and your Vercel URLs are accepted automatically. |
+| `ALLOWED_ORIGINS` | Optional. Comma-separated extra addresses the app is served on (another custom domain). |
 | `RESEND_API_KEY`, `MAIL_FROM`, `MAIL_REPLY_TO` | Branded email |
 | `ANTHROPIC_API_KEY` | AI coach |
 

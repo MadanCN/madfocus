@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 import { useFocus, MODES } from '../contexts/FocusContext'
 import { Menu, Sheet, anyLayerOpen } from './ui'
-import { fmtClock, isTypingTarget } from '../lib/utils'
+import { fmtClock, isTypingTarget, initials } from '../lib/utils'
 import CommandPalette from './CommandPalette'
 import Capture from './Capture'
 import CoachDrawer from './CoachDrawer'
@@ -119,9 +119,8 @@ function TopBar({ onCoach }) {
       <Menu
         label="Account"
         trigger={p => (
-          <button {...p} aria-label="Account menu"
-            className="w-9 h-9 rounded-full bg-surface flex items-center justify-center text-[13px] font-semibold shadow-[inset_0_0_0_1px_var(--c-line)]">
-            {(user?.email || '?')[0].toUpperCase()}
+          <button {...p} aria-label="Account menu" className="rounded-full">
+            <Avatar user={user} profile={profile} size={36} />
           </button>
         )}
         items={[
@@ -274,5 +273,17 @@ function MoreRow({ icon, label, onClick }) {
     <button onClick={onClick} className="row row-hover text-[15px] text-left">
       <span className="text-muted">{icon}</span>{label}
     </button>
+  )
+}
+
+export function Avatar({ user, profile, size = 36 }) {
+  if (profile?.avatar_url) {
+    return <img src={profile.avatar_url} alt="" width={size} height={size} className="rounded-full object-cover shadow-[0_0_0_1px_var(--c-line)]" style={{ width: size, height: size }} />
+  }
+  return (
+    <span className="rounded-full flex items-center justify-center font-semibold bg-accent-soft text-accent"
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.36) }} aria-hidden>
+      {initials(user, profile)}
+    </span>
   )
 }

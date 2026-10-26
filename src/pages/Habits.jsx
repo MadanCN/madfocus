@@ -5,7 +5,8 @@ import { useBus, emit } from '../lib/bus'
 import { useAutosave } from '../lib/useAutosave'
 import { loadHabitData, createHabit, updateHabit, deleteHabit, setLog, saveWriting, CATEGORIES } from '../lib/habits'
 import { sb, dbRun } from '../lib/supabase'
-import { today, addDays, parseYmd, fmtDay, relDay, fmtMinutes, fmtNum, streakFrom, plural } from '../lib/utils'
+import { today, addDays, parseYmd, fmtDay, relDay, fmtMinutes, fmtNum, streakFrom, plural, weekOffset } from '../lib/utils'
+import { useAuth } from '../contexts/AuthContext'
 
 const FREQ = { daily: 'Every day', weekdays: 'Weekdays', weekly: 'Weekly' }
 const TYPES = { simple: 'Done or not', variants: 'Pick a variant', writing: 'Writing (words & chapters)' }
@@ -409,9 +410,10 @@ function HabitSheet({ habit, logs, writing, onClose, setData, onToggle, onArchiv
 }
 
 function Heatmap({ logs, onToggle, variants }) {
+  const mondayFirst = useAuth().profile?.week_starts_monday !== false
   const d = today()
   const weeks = 16
-  const start = (() => { const s = parseYmd(addDays(d, -(weeks * 7 - 1))); const back = (s.getDay() + 6) % 7; return addDays(addDays(d, -(weeks * 7 - 1)), -back) })()
+  const start = (() => { const s = parseYmd(addDays(d, -(weeks * 7 - 1))); const back = weekOffset(s, mondayFirst); return addDays(addDays(d, -(weeks * 7 - 1)), -back) })()
   const days = []
   for (let x = start; x <= d; x = addDays(x, 1)) days.push(x)
   const set = new Map(logs.map(l => [l.date, l]))

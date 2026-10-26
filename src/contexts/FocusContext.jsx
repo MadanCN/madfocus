@@ -19,13 +19,22 @@ function load() {
   try { return JSON.parse(localStorage.getItem(KEY)) || null } catch { return null }
 }
 
+let focusDefault = MODES.focus.minutes
+const minutesFor = mode => (mode === 'focus' ? focusDefault : MODES[mode].minutes)
 const blank = mode => ({
-  mode, total: MODES[mode].minutes * 60, remaining: MODES[mode].minutes * 60,
+  mode, total: minutesFor(mode) * 60, remaining: minutesFor(mode) * 60,
   endAt: null, running: false, taskId: null, taskTitle: null,
 })
 
-export function FocusProvider({ children }) {
+export function FocusProvider({ children, defaultMinutes = 25 }) {
+  focusDefault = defaultMinutes
   const [state, setState] = useState(() => load() || blank('focus'))
+
+  // A new default length applies right away if the timer hasn't been started
+  useEffect(() => {
+    setState(s => (s.mode === 'focus' && !s.running && s.remaining === s.total && s.total !== defaultMinutes * 60)
+      ? { ...s, total: defaultMinutes * 60, remaining: defaultMinutes * 60 } : s)
+  }, [defaultMinutes])
   const [now, setNow] = useState(Date.now())
   const [overlayOpen, setOverlayOpen] = useState(false)
   const [sessions, setSessions] = useState([])

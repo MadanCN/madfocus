@@ -16,7 +16,7 @@ import {
 } from '../lib/utils'
 
 export default function Today() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const focus = useFocus()
   const toast = useToast()
   const { openTask, openCapture } = useShell()
@@ -76,11 +76,12 @@ export default function Today() {
 
   if (tasks === null) return <PageLoader />
 
-  const name = firstName(user)
+  const name = firstName(user, profile)
+  const goal = profile?.daily_focus_goal || 0
   const summary = [
     todayList.length ? plural(todayList.length, 'thing') + ' on today’s list' : 'Today’s list is clear',
     activeHabits.length ? `${habitsDone} of ${activeHabits.length} habits done` : null,
-    focus.focusMinutesToday ? `${fmtMinutes(focus.focusMinutesToday)} focused` : null,
+    goal ? `${fmtMinutes(focus.focusMinutesToday)} of ${fmtMinutes(goal)} focused` : focus.focusMinutesToday ? `${fmtMinutes(focus.focusMinutesToday)} focused` : null,
   ].filter(Boolean)
 
   return (

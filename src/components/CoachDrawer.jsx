@@ -6,6 +6,7 @@ import { uid, today, addDays, streakFrom } from '../lib/utils'
 import { patchToRow } from '../lib/tasks'
 import { emit } from '../lib/bus'
 import { api } from '../lib/api'
+import { useAuth } from '../contexts/AuthContext'
 
 const STARTERS = [
   'What should I do first today?',
@@ -14,7 +15,7 @@ const STARTERS = [
   'I’m procrastinating. Help me start.',
 ]
 
-async function buildContext() {
+async function buildContext(profile) {
   const d = today()
   const since = addDays(d, -30)
   const [tasks, habits, goals, logs, journal, writing] = await Promise.all([
@@ -28,6 +29,14 @@ async function buildContext() {
   const L = logs.data || []
   return {
     date: d,
+    aboutMe: profile ? {
+      name: profile.preferred_name || profile.full_name || undefined,
+      pronouns: profile.pronouns || undefined,
+      role: profile.headline || undefined,
+      location: profile.location || undefined,
+      about: profile.bio || undefined,
+      dailyFocusGoalMinutes: profile.daily_focus_goal || undefined,
+    } : undefined,
     pendingTasks: (tasks.data || []).map(t => ({ title: t.title, priority: t.priority, due: t.due, project: t.project })),
     habits: (habits.data || []).filter(h => !h.archived).map(h => {
       const hl = L.filter(l => l.habit_id === h.id)
@@ -65,6 +74,7 @@ function Rich({ text }) {
 
 export default function CoachDrawer({ open, onClose }) {
   const toast = useToast()
+  const { profile } = useAuth()
   const [msgs, setMsgs] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -74,7 +84,7 @@ export default function CoachDrawer({ open, onClose }) {
 
   useEffect(() => {
     if (!open) return
-    buildContext().then(c => {
+    buildContext(profile).then(c => {
       setCtx(c)
       if (msgs.length === 0) {
         const left = c.habits.filter(h => !h.doneToday).length
@@ -92,7 +102,7 @@ export default function CoachDrawer({ open, onClose }) {
     setMsgs(p => [...p, { id: uid(), role: 'user', text: q }])
     setBusy(true)
     try {
-      const context = ctx || await buildContext()
+      const context = ctx || await buildContext(profile)
       const data = await api('assistant', { body: { question: q, context } })
       const reply = data.reply || 'I couldn’t come up with an answer. Try asking another way.'
       setMsgs(p => [...p, { id: uid(), role: 'assistant', text: reply, suggestions: extractTasks(reply) }])

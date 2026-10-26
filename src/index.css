@@ -86,6 +86,21 @@
   color-scheme: dark;
 }
 
+
+/* ═══════════════════════════════════════════════════
+   PERSONAL ACCENT — chosen in Settings (contrast checked ≥ 4.5:1)
+═══════════════════════════════════════════════════ */
+html[data-accent="moss"]  { --c-accent: #2C7A4C; --c-accent-soft: #E4F2E9; --c-accent-mid: #BFE0CB; --c-chart: #2C7A4C; }
+html[data-accent="plum"]  { --c-accent: #6E3FC7; --c-accent-soft: #EFE8FB; --c-accent-mid: #D6C6F5; --c-chart: #6E3FC7; }
+html[data-accent="rose"]  { --c-accent: #B3325D; --c-accent-soft: #FBE8EE; --c-accent-mid: #F2C3D3; --c-chart: #B3325D; }
+html[data-accent="ochre"] { --c-accent: #94570A; --c-accent-soft: #FBF0DE; --c-accent-mid: #EED6AE; --c-chart: #94570A; }
+html[data-accent="teal"]  { --c-accent: #0F7380; --c-accent-soft: #E0F2F3; --c-accent-mid: #B5DFE2; --c-chart: #0089A6; }
+html.dark[data-accent="moss"]  { --c-accent: #62CC8F; --c-accent-soft: #13301F; --c-accent-mid: #1F4D33; --c-chart: #3FA56C; }
+html.dark[data-accent="plum"]  { --c-accent: #B691FF; --c-accent-soft: #261C40; --c-accent-mid: #3E2C6E; --c-chart: #9670E6; }
+html.dark[data-accent="rose"]  { --c-accent: #FF8DB0; --c-accent-soft: #3A1A26; --c-accent-mid: #5E2A3D; --c-chart: #D9688E; }
+html.dark[data-accent="ochre"] { --c-accent: #F2B23E; --c-accent-soft: #352710; --c-accent-mid: #5A4219; --c-chart: #B8811C; }
+html.dark[data-accent="teal"]  { --c-accent: #4FD0DA; --c-accent-soft: #10303A; --c-accent-mid: #18505C; --c-chart: #2BA4AE; }
+
 /* ═══════════════════════════════════════════════════
    BASE
 ═══════════════════════════════════════════════════ */
