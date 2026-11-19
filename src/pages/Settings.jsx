@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { ShieldCheck, ShieldOff, Download, Trash2, LogOut, Moon, Sun, KeyRound, Mail, User, Camera, Check, SlidersHorizontal } from 'lucide-react'
+import { ShieldCheck, ShieldOff, Download, Trash2, LogOut, Moon, Sun, KeyRound, Mail, User, Camera, Check, SlidersHorizontal, Plug, Copy } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 import { sb, verifyPassword } from '../lib/supabase'
@@ -23,6 +23,7 @@ export default function Settings() {
         <Account />
         <Password />
         <TwoStep />
+        <ClaudeConnect />
         <Data />
       </div>
     </div>
@@ -357,6 +358,71 @@ function TwoStep() {
             : <button onClick={() => setMode('enroll')} className="btn btn-primary btn-sm ml-auto">Set up</button>}
         </div>
       )}
+    </Section>
+  )
+}
+
+// ── Claude connector keys (api/tokens.js, api/mcp.js) ──────────
+function ClaudeConnect() {
+  const toast = useToast()
+  const confirm = useConfirm()
+  const [keys, setKeys] = useState(null)
+  const [fresh, setFresh] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  async function load() {
+    try { const r = await api('tokens', { method: 'GET' }); setKeys(r.tokens || []) }
+    catch (e) { setKeys([]); toast(e.message, 'error') }
+  }
+  useEffect(() => { load() }, [])
+
+  async function create() {
+    setBusy(true)
+    try {
+      const r = await api('tokens', { body: { name: 'Claude' } })
+      setFresh(`${window.location.origin}/api/mcp?key=${r.token}`)
+      load()
+    } catch (e) { toast(e.message, 'error') }
+    finally { setBusy(false) }
+  }
+
+  async function revoke(k) {
+    const ok = await confirm({ title: 'Revoke this link?', body: 'Claude loses access straight away. You can create a new link at any time.', confirmLabel: 'Revoke' })
+    if (!ok) return
+    try { await api('tokens', { method: 'DELETE', body: { id: k.id } }); toast('Link revoked'); load() }
+    catch (e) { toast(e.message, 'error') }
+  }
+
+  async function copy() {
+    try { await navigator.clipboard.writeText(fresh); toast('Copied') }
+    catch { toast('Couldn’t copy. Select the text and copy it instead.', 'error') }
+  }
+
+  return (
+    <Section icon={Plug} title="Connect Claude" lead="A private link that lets Claude read and update your tasks, habits, goals and writing log.">
+      {fresh && (
+        <div className="flex flex-col gap-2 pb-4 mb-2 border-b border-line-soft">
+          <p className="text-[14px] font-medium">Your connector link</p>
+          <p className="text-[13px] text-muted">Copy it now. It won’t be shown again. Anyone with this link can change your data, so keep it private.</p>
+          <div className="flex flex-wrap gap-2">
+            <input readOnly value={fresh} onFocus={e => e.target.select()} className="input flex-1 min-w-[220px] font-mono text-[12.5px]" aria-label="Connector link" />
+            <button onClick={copy} className="btn btn-outline btn-sm"><Copy size={15} /> Copy</button>
+          </div>
+          <p className="text-[13px] text-muted">In Claude, add a custom connector named MadFocus and paste this link.</p>
+          <div><button onClick={() => setFresh(null)} className="btn btn-quiet btn-sm">Done</button></div>
+        </div>
+      )}
+      <div className="flex flex-col divide-y divide-line-soft -my-2">
+        {(keys || []).map(k => (
+          <Row key={k.id} title={`${k.name} · ${k.prefix}…`}
+            body={k.last_used_at ? `Last used ${new Date(k.last_used_at).toLocaleString('en-GB')}` : `Created ${new Date(k.created_at).toLocaleDateString('en-GB')} · not used yet`}>
+            <button onClick={() => revoke(k)} className="btn btn-outline btn-sm"><Trash2 size={15} /> Revoke</button>
+          </Row>
+        ))}
+        <Row title={keys?.length ? 'Create another link' : 'Create a connector link'} body="Each link keeps working until you revoke it.">
+          <button onClick={create} disabled={busy || keys === null} className="btn btn-outline btn-sm"><Plug size={15} /> {busy ? 'Creating' : 'Create link'}</button>
+        </Row>
+      </div>
     </Section>
   )
 }
