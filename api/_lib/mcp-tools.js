@@ -1,6 +1,7 @@
 // Tools exposed to Claude through the MCP endpoint (api/mcp.js).
 // Every query runs with the service role, so every query MUST be scoped to ctx.userId.
 import crypto from 'node:crypto'
+import { EXERCISES, DAYS, CYCLE, nextDay } from '../../src/lib/fitness.js'
 
 export class ToolError extends Error {}
 
@@ -16,7 +17,7 @@ const GOAL_STATUS = ['active', 'paused', 'done']
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 // Children before parents. Keeps the account, profile and Claude keys.
-const RESET_ORDER = ['habit_logs', 'goal_milestones', 'reading_sessions', 'notes', 'note_folders', 'books', 'authors', 'series',
+const RESET_ORDER = ['workout_sets', 'workout_sessions', 'food_logs', 'body_weights', 'fitness_settings', 'habit_logs', 'goal_milestones', 'reading_sessions', 'notes', 'note_folders', 'books', 'authors', 'series',
   'reading_goals', 'tasks', 'habits', 'goals', 'journal_entries', 'pomodoro_sessions', 'writing_logs', 'custom_data']
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -569,6 +570,90 @@ export const TOOLS = [
       const to = date(a.to, 'to') || ctx.today, from = date(a.from, 'from') || addDays(to, -6)
       const rows = await q(ctx.sb.from('journal_entries').select('*').eq('user_id', ctx.userId).gte('date', from).lte('date', to).order('date', { ascending: true }))
       return { from, to, entries: rows.map(journalOut) }
+    },
+  },
+
+  // ── Fitness ──
+  {
+    name: 'get_fitness', title: 'Fitness log', annotations: RO,
+    description: 'Workouts (day type, every set with weight and reps, cardio minutes/km, completion, personal bests), daily food totals vs targets, and body-weight entries for a date range (default: last 7 days). Also returns the next workout in the Push A / Pull A / Legs A / Push B / Pull B / Legs B / Rest cycle. Use this to review training and suggest what to push.',
+    inputSchema: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } } },
+    run: async (ctx, a) => {
+      const to = date(a.to, 'to') || ctx.today, from = date(a.from, 'from') || addDays(to, -6)
+      const sb = ctx.sb, u = ctx.userId
+      const [sessions, recent, food, weights, settings] = await Promise.all([
+        q(sb.from('workout_sessions').select('*').eq('user_id', u).gte('date', from).lte('date', to).order('date', { ascending: true })),
+        q(sb.from('workout_sessions').select('date,day_type,finished_at').eq('user_id', u).gte('date', addDays(ctx.today, -60))),
+        q(sb.from('food_logs').select('date,meal,name,qty,kcal,protein').eq('user_id', u).gte('date', from).lte('date', to)),
+        q(sb.from('body_weights').select('date,kg').eq('user_id', u).gte('date', addDays(from, -30)).lte('date', to).order('date', { ascending: true })),
+        q(sb.from('fitness_settings').select('kcal_target,protein_target').eq('user_id', u).maybeSingle()),
+      ])
+      const sets = sessions.length ? await q(sb.from('workout_sets').select('session_id,exercise_id,set_no,weight,reps,done').eq('user_id', u).in('session_id', sessions.map(s => s.id))) : []
+      const targets = settings || { kcal_target: 2000, protein_target: 140 }
+      const byDay = {}
+      for (const f of food) { const d = (byDay[f.date] ||= { date: f.date, kcal: 0, protein: 0, items: 0 }); d.kcal += f.kcal || 0; d.protein += Number(f.protein) || 0; d.items++ }
+      return {
+        from, to, today: ctx.today, next_workout: DAYS[nextDay(recent)]?.label,
+        cycle: CYCLE.map(c => DAYS[c].label),
+        workouts: sessions.map(s => clean({
+          date: s.date, day: DAYS[s.day_type]?.label || s.day_type, finished: !!s.finished_at,
+          sets_done: s.stats?.done, sets_planned: s.stats?.planned, volume_kg: s.stats?.volume,
+          personal_bests: s.stats?.prs?.length ? s.stats.prs : undefined,
+          cardio: s.cardio_min ? `${Number(s.cardio_min)} min${s.cardio_km ? `, ${Number(s.cardio_km)} km` : ''} (${s.cardio_kind || 'cardio'})` : undefined,
+          exercises: Object.values(sets.filter(x => x.session_id === s.id && x.done).reduce((m, x) => {
+            const ex = EXERCISES[x.exercise_id]
+            const e = (m[x.exercise_id] ||= { exercise: ex?.name || x.exercise_id, target: ex ? `${ex.sets} × ${ex.repMin}-${ex.repMax}${ex.type === 'time' ? ' s' : ''}` : undefined, sets: [] })
+            e.sets[x.set_no - 1] = ex?.type === 'weight' ? `${Number(x.weight)}kg×${x.reps}` : `${x.reps}${ex?.type === 'time' ? 's' : ''}`
+            return m
+          }, {})).map(e => ({ ...e, sets: e.sets.filter(Boolean) })),
+        })),
+        food: { targets, days: Object.values(byDay).sort((x, y) => x.date.localeCompare(y.date)).map(d => ({ ...d, protein: Math.round(d.protein) })) },
+        body_weight: weights.map(w => ({ date: w.date, kg: Number(w.kg) })),
+      }
+    },
+  },
+  {
+    name: 'log_food', title: 'Log food', annotations: WRITE,
+    description: 'Add a food entry to the calorie log. kcal and protein are totals for this entry.',
+    inputSchema: { type: 'object', required: ['name', 'kcal'], properties: {
+      name: { type: 'string' }, qty: { type: 'string' }, kcal: { type: 'integer' }, protein: { type: 'number' },
+      meal: { type: 'string', enum: ['breakfast', 'lunch', 'snack', 'dinner'] }, date: { type: 'string' },
+    } },
+    run: async (ctx, a) => {
+      const protein = a.protein === undefined || a.protein === null ? 0 : Number(a.protein)
+      if (!(protein >= 0 && protein <= 1000)) throw new ToolError('protein must be 0–1000 g.')
+      const row = {
+        id: uid(), user_id: ctx.userId, date: date(a.date, 'date') || ctx.today, meal: pick(a.meal, 'meal', ['breakfast', 'lunch', 'snack', 'dinner']) || 'snack',
+        name: text(a.name, 'name', { max: 120, required: true }), qty: text(a.qty, 'qty', { max: 60 }) || '',
+        kcal: int(a.kcal, 'kcal', 0, 10000) ?? 0, protein: Math.round(protein * 10) / 10,
+      }
+      await q(ctx.sb.from('food_logs').insert(row))
+      return { logged: { date: row.date, meal: row.meal, name: row.name, kcal: row.kcal, protein: row.protein } }
+    },
+  },
+  {
+    name: 'log_body_weight', title: 'Log body weight', annotations: WRITE,
+    description: 'Record body weight in kg for a day (replaces that day\'s entry).',
+    inputSchema: { type: 'object', required: ['kg'], properties: { kg: { type: 'number' }, date: { type: 'string' } } },
+    run: async (ctx, a) => {
+      const kg = Number(a.kg)
+      if (!(kg >= 20 && kg <= 400)) throw new ToolError('kg must be between 20 and 400.')
+      const day = date(a.date, 'date') || ctx.today
+      const existing = await q(ctx.sb.from('body_weights').select('id').eq('user_id', ctx.userId).eq('date', day).maybeSingle())
+      await q(ctx.sb.from('body_weights').upsert({ id: existing?.id || uid(), user_id: ctx.userId, date: day, kg: Math.round(kg * 10) / 10 }, { onConflict: 'user_id,date' }))
+      return { date: day, kg }
+    },
+  },
+  {
+    name: 'set_nutrition_targets', title: 'Set calorie & protein targets', annotations: WRITE,
+    description: 'Set the daily calorie and protein targets shown in the food log.',
+    inputSchema: { type: 'object', properties: { kcal_target: { type: 'integer' }, protein_target: { type: 'integer' } } },
+    run: async (ctx, a) => {
+      const cur = await q(ctx.sb.from('fitness_settings').select('*').eq('user_id', ctx.userId).maybeSingle())
+      const row = { user_id: ctx.userId, kcal_target: int(a.kcal_target, 'kcal_target', 800, 6000) ?? cur?.kcal_target ?? 2000,
+        protein_target: int(a.protein_target, 'protein_target', 20, 400) ?? cur?.protein_target ?? 140, updated_at: nowIso() }
+      await q(ctx.sb.from('fitness_settings').upsert(row, { onConflict: 'user_id' }))
+      return { kcal_target: row.kcal_target, protein_target: row.protein_target }
     },
   },
 

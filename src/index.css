@@ -34,6 +34,7 @@
   --m-journal: #BC3C66;
   --m-library: #A86A12;
   --m-notes:   #0F7A84;
+  --m-fitness: #C2410C;
 
   --shadow-float: 0 1px 2px rgba(23,26,33,.06), 0 8px 28px rgba(23,26,33,.10);
   --shadow-pop:   0 1px 2px rgba(23,26,33,.08), 0 16px 48px rgba(23,26,33,.16);
@@ -79,6 +80,7 @@
   --m-journal: #FF8DB0;
   --m-library: #F2B23E;
   --m-notes:   #4FD0DA;
+  --m-fitness: #FB923C;
 
   --shadow-float: 0 0 0 1px rgba(255,255,255,.04), 0 10px 30px rgba(0,0,0,.45);
   --shadow-pop:   0 0 0 1px rgba(255,255,255,.05), 0 18px 56px rgba(0,0,0,.55);

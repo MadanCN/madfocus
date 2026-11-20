@@ -140,7 +140,7 @@ function TopBar({ onCoach }) {
 function Dock({ onSearch, onCapture, onMore, captureOpen }) {
   const focus = useFocus()
   const location = useLocation()
-  const mobilePrimary = ['/', '/tasks', '/journal']
+  const mobilePrimary = ['/', '/tasks', '/fitness']
   const inMore = !mobilePrimary.some(p => p === '/' ? location.pathname === '/' : location.pathname.startsWith(p))
 
   return (
@@ -181,7 +181,7 @@ function Dock({ onSearch, onCapture, onMore, captureOpen }) {
               <Plus size={22} strokeWidth={2.4} />
             </button>
           </div>
-          <MobileTab space={SPACES[4]} />
+          <MobileTab space={SPACES.find(s => s.to === '/fitness')} />
           <button onClick={onMore} className="flex flex-col items-center justify-center gap-1 text-[11px] font-medium"
             style={{ color: inMore ? 'var(--c-ink)' : 'var(--c-faint)' }}>
             <MoreHorizontal size={21} /> More
@@ -243,7 +243,7 @@ function MoreSheet({ open, onClose, onCoach, onSearch }) {
   const { dark, toggle } = useTheme()
   const { signOut, isAdmin } = useAuth()
   const navigate = useNavigate()
-  const rest = SPACES.filter(s => !['/', '/tasks', '/journal'].includes(s.to))
+  const rest = SPACES.filter(s => !['/', '/tasks', '/fitness'].includes(s.to))
   return (
     <Sheet open={open} onClose={onClose} title="More">
       <div className="grid grid-cols-2 gap-2 mb-4">

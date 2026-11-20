@@ -13,6 +13,7 @@ import Goals   from './pages/Goals'
 import Journal from './pages/Journal'
 import Library from './pages/Library'
 import Notes   from './pages/Notes'
+import Fitness from './pages/Fitness'
 import Login   from './pages/Login'
 import { SetPassword, MfaGate, AccountBlocked } from './pages/AuthScreens'
 
@@ -58,6 +59,7 @@ function Gate() {
             <Route path="/journal"   element={<Journal />} />
             <Route path="/library/*" element={<Library />} />
             <Route path="/notes"     element={<Notes />} />
+            <Route path="/fitness"   element={<Fitness />} />
             <Route path="/settings"  element={<Settings />} />
             <Route path="/admin"     element={<Admin />} />
             {/* Legacy paths are redirected inside Shell */}
