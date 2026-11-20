@@ -49,38 +49,48 @@ export const EXERCISES = {
   lying_leg_raise:  X('lying_leg_raise', 'Lying Leg Raise', 'Lower abs', 3, 10, 15, 0, 0, 'reps', 45, 'Hands under your hips, lower slowly, don’t let your back arch.', 'bodyweight'),
   ab_wheel:         X('ab_wheel', 'Ab Wheel Rollout (from knees)', 'Abs', 3, 8, 12, 0, 0, 'reps', 45, 'Go only as far as you can without your hips sagging.', 'bodyweight'),
   russian_twist:    X('russian_twist', 'Russian Twist (total reps)', 'Obliques', 3, 16, 20, 0, 0, 'reps', 45, 'Lean back slightly, rotate from your ribs.', 'bodyweight'),
+  // Posture (rounded upper back): open the chest, strengthen the upper back and neck
+  band_pull_apart:  X('band_pull_apart', 'Band Pull-Apart', 'Upper back, rear delts', 2, 15, 20, 0, 0, 'reps', 30, 'Arms straight at shoulder height, pull the band to your chest, squeeze shoulder blades.', 'bodyweight'),
+  external_rotation:X('external_rotation', 'Cable External Rotation (each arm)', 'Rotator cuff', 2, 12, 15, 2.5, 2.5, 'kg on the stack', 30, 'Elbow at 90° tucked to your side, rotate the forearm outward slowly. Very light.'),
+  scap_pullup:      X('scap_pullup', 'Dead Hang + Scapular Pull-Up', 'Lower traps, lats', 2, 8, 10, 0, 0, 'reps', 45, 'Hang from the bar with straight arms, then pull your shoulder blades down and back without bending your elbows.', 'bodyweight'),
+  superman:         X('superman', 'Superman Hold', 'Upper & lower back', 2, 20, 30, 0, 5, 'seconds', 30, 'Lie face down, lift arms and chest, thumbs up, chin tucked, squeeze shoulder blades.', 'time'),
+  chin_tuck:        X('chin_tuck', 'Chin Tuck (5 s hold each)', 'Deep neck flexors', 2, 10, 12, 0, 0, 'reps', 20, 'Stand tall against a wall, pull your chin straight back (double chin), hold 5 s.', 'bodyweight'),
+  chest_stretch:    X('chest_stretch', 'Doorway Chest Stretch (each side)', 'Chest, front shoulders', 2, 30, 45, 0, 5, 'seconds per side', 15, 'Forearm on the door frame at shoulder height, step through gently until you feel the stretch.', 'time'),
+  cat_cow:          X('cat_cow', 'Cat-Cow', 'Upper-back mobility', 2, 10, 12, 0, 0, 'reps', 20, 'On all fours, round your back fully, then arch and lift your chest. Move slowly with your breath.', 'bodyweight'),
   bicycle_crunch:   X('bicycle_crunch', 'Bicycle Crunch (total reps)', 'Abs, obliques', 3, 20, 30, 0, 0, 'reps', 45, 'Slow and controlled, elbow toward the opposite knee.', 'bodyweight'),
 }
 
+// Warm-up and cool-down steps. img points at a demo in exercise-demos.json (null = no picture).
+const W = (text, img = null) => ({ text, img })
 const WARMUP = {
-  push: ['5 min brisk walk on the treadmill', '20 arm circles each way', '15 band pull-aparts (or light cable)', 'Empty bar bench press × 12'],
-  pull: ['5 min brisk walk or rowing machine', '15 arm swings across your chest', '10 scapular pull-ups (or very light pulldown × 12)', '10 cat-cows'],
-  legs: ['5 min bike or brisk walk', '15 bodyweight squats', '10 leg swings each leg, front and side', '10 glute bridges'],
-  rest: ['2 min easy walking to start'],
+  push: [W('5 min brisk walk on the treadmill', 'walk_treadmill'), W('20 arm circles each way', 'arm_circles'), W('15 band pull-aparts (or light cable)', 'band_pull_apart'), W('Empty bar bench press × 12', 'bench')],
+  pull: [W('5 min rowing machine or brisk walk', 'rowing'), W('10 elbows-back squeezes (open the chest)', 'elbows_back'), W('10 scapular pull-ups (or very light pulldown × 12)', 'scap_pullup'), W('10 cat-cows', 'cat_cow')],
+  legs: [W('5 min stationary bike or brisk walk', 'bike'), W('15 bodyweight squats', 'bw_squat'), W('10 leg swings each leg', 'leg_swing'), W('10 glute bridges', 'glute_bridge')],
+  rest: [W('2 min easy walking to start', 'walk_treadmill')],
 }
 const COOLDOWN = {
-  push: ['Doorway chest stretch, 30 s each side', 'Overhead triceps stretch, 30 s each side', 'Child’s pose, 45 s', 'Slow breathing, 1 min'],
-  pull: ['Lat stretch on a rack or pole, 30 s each side', 'Biceps wall stretch, 30 s each side', 'Cat-cow, 10 slow reps', 'Slow breathing, 1 min'],
-  legs: ['Standing quad stretch, 30 s each leg', 'Hamstring stretch, 30 s each leg', 'Kneeling hip-flexor stretch, 30 s each side', 'Calf stretch on a step, 30 s each'],
-  rest: ['Full-body stretch, 5 min: hamstrings, hips, chest, shoulders'],
+  push: [W('Doorway chest stretch, 30 s each side', 'chest_stretch'), W('Overhead triceps stretch, 30 s each side', 'triceps_stretch'), W('Child’s pose, 45 s', 'childs_pose'), W('Slow breathing, 1 min')],
+  pull: [W('Upper-back stretch, 30 s', 'upper_back_stretch'), W('Biceps stretch, 30 s each side', 'biceps_stretch'), W('Cat-cow, 10 slow reps', 'cat_cow'), W('Slow breathing, 1 min')],
+  legs: [W('Standing quad stretch, 30 s each leg', 'quad_stretch'), W('Hamstring stretch, 30 s each leg', 'hamstring_stretch'), W('Kneeling hip-flexor stretch, 30 s each side', 'hip_flexor'), W('Calf stretch against a wall, 30 s each', 'calf_stretch')],
+  rest: [W('Spinal twist stretch, 30 s each side', 'spinal_stretch'), W('Hamstring stretch, 30 s each leg', 'hamstring_stretch'), W('Doorway chest stretch, 30 s each side', 'chest_stretch'), W('Child’s pose, 45 s', 'childs_pose')],
 }
 
 // kind: 'walk' | 'run'; minutes is the starting target
 export const DAYS = {
-  push_a: { label: 'Push A', group: 'push', focus: 'Chest, front delts, shoulders', lifts: ['bench', 'db_shoulder_press', 'incline_db_press', 'db_lateral', 'tri_pushdown'], abs: ['plank', 'hanging_knee_raise'],
+  push_a: { label: 'Push A', group: 'push', focus: 'Chest, front delts, shoulders', lifts: ['bench', 'db_shoulder_press', 'incline_db_press', 'db_lateral', 'tri_pushdown'], abs: ['plank', 'hanging_knee_raise'], posture: ['band_pull_apart', 'chest_stretch'],
     cardio: { kind: 'walk', name: 'Incline walk', minutes: 15, cap: 25, how: 'Treadmill incline 8–10%, 5–5.5 km/h. You should be able to talk.' } },
-  pull_a: { label: 'Pull A', group: 'pull', focus: 'Back, biceps, rear delts', lifts: ['lat_pulldown', 'seated_row', 'one_arm_row', 'face_pull', 'db_curl'], abs: ['cable_crunch', 'dead_bug'],
+  pull_a: { label: 'Pull A', group: 'pull', focus: 'Back, biceps, rear delts', lifts: ['lat_pulldown', 'seated_row', 'one_arm_row', 'face_pull', 'db_curl'], abs: ['cable_crunch', 'dead_bug'], posture: ['scap_pullup', 'external_rotation'],
     cardio: { kind: 'run', name: 'Easy run', minutes: 15, cap: 40, how: 'Conversational pace. Walk breaks are fine. Building back to 5k.' } },
-  legs_a: { label: 'Legs A', group: 'legs', focus: 'Legs, rear delts', lifts: ['back_squat', 'rdl', 'leg_press', 'seated_leg_curl', 'reverse_pec_deck'], abs: ['lying_leg_raise', 'side_plank'],
+  legs_a: { label: 'Legs A', group: 'legs', focus: 'Legs, rear delts', lifts: ['back_squat', 'rdl', 'leg_press', 'seated_leg_curl', 'reverse_pec_deck'], abs: ['lying_leg_raise', 'side_plank'], posture: ['superman', 'chin_tuck'],
     cardio: { kind: 'walk', name: 'Easy walk (flat)', minutes: 10, cap: 20, how: 'Flat treadmill, 5 km/h. Flushes the legs out.' } },
-  push_b: { label: 'Push B', group: 'push', focus: 'Chest, front delts, shoulders', lifts: ['incline_bench', 'machine_chest', 'arnold_press', 'cable_lateral', 'overhead_tri'], abs: ['ab_wheel', 'russian_twist'],
+  push_b: { label: 'Push B', group: 'push', focus: 'Chest, front delts, shoulders', lifts: ['incline_bench', 'machine_chest', 'arnold_press', 'cable_lateral', 'overhead_tri'], abs: ['ab_wheel', 'russian_twist'], posture: ['band_pull_apart', 'chest_stretch'],
     cardio: { kind: 'walk', name: 'Incline walk', minutes: 15, cap: 25, how: 'Treadmill incline 8–10%, 5–5.5 km/h.' } },
-  pull_b: { label: 'Pull B', group: 'pull', focus: 'Back, biceps, rear delts', lifts: ['barbell_row', 'close_pulldown', 'machine_row', 'rear_delt_fly', 'hammer_curl'], abs: ['plank', 'bicycle_crunch'],
+  pull_b: { label: 'Pull B', group: 'pull', focus: 'Back, biceps, rear delts', lifts: ['barbell_row', 'close_pulldown', 'machine_row', 'rear_delt_fly', 'hammer_curl'], abs: ['plank', 'bicycle_crunch'], posture: ['scap_pullup', 'external_rotation'],
     cardio: { kind: 'run', name: 'Easy run', minutes: 20, cap: 45, how: 'Conversational pace. Your longest run of the week.' } },
-  legs_b: { label: 'Legs B', group: 'legs', focus: 'Legs, rear delts', lifts: ['goblet_squat', 'hip_thrust', 'walking_lunge', 'leg_extension', 'lying_leg_curl', 'face_pull'], abs: ['cable_crunch', 'side_plank'],
+  legs_b: { label: 'Legs B', group: 'legs', focus: 'Legs, rear delts', lifts: ['goblet_squat', 'hip_thrust', 'walking_lunge', 'leg_extension', 'lying_leg_curl', 'face_pull'], abs: ['cable_crunch', 'side_plank'], posture: ['superman', 'chin_tuck'],
     cardio: { kind: 'walk', name: 'Easy walk (flat)', minutes: 10, cap: 20, how: 'Flat treadmill, 5 km/h.' } },
-  rest: { label: 'Rest', group: 'rest', focus: 'Recovery', lifts: [], abs: [],
-    cardio: { kind: 'walk', name: 'Outdoor walk', minutes: 40, cap: 60, how: 'Easy pace outside, no gym. Aim for about 8–10k steps today.' } },
+  rest: { label: 'Rest', group: 'rest', focus: 'Recovery', lifts: [], abs: [], posture: ['cat_cow', 'chin_tuck', 'superman', 'chest_stretch'],
+    cardio: { kind: 'walk', name: 'Outdoor walk', minutes: 40, cap: 60, how: 'Easy pace outside, no gym. Aim for about 8–10k steps today. Do the posture routine at home.' } },
 }
 export const CYCLE = ['push_a', 'pull_a', 'legs_a', 'push_b', 'pull_b', 'legs_b', 'rest']
 export const warmupFor = d => WARMUP[DAYS[d].group]
@@ -137,7 +147,7 @@ export function setLabel(ex, s) {
 // ── Session stats + supportive message ─────────────────────────
 export function sessionStats(dayType, sets, prevBest, cardio) {
   const day = DAYS[dayType]
-  const ids = [...day.lifts, ...day.abs]
+  const ids = [...day.lifts, ...day.abs, ...(day.posture || [])]
   const planned = ids.reduce((a, id) => a + EXERCISES[id].sets, 0)
   const done = sets.filter(s => s.done && s.reps > 0)
   const volume = Math.round(done.reduce((a, s) => a + (s.weight || 0) * (s.reps || 0), 0))

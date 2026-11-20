@@ -1,0 +1,22 @@
+{
+  "name": "Mad Focus",
+  "short_name": "MadFocus",
+  "description": "Tasks, habits, goals, fitness and focus in one place.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#EEF0F3",
+  "theme_color": "#EEF0F3",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Today", "url": "/", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Workout", "url": "/fitness", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Log food", "url": "/fitness?tab=food", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

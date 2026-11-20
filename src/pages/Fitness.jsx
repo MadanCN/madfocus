@@ -3,6 +3,7 @@ import { Dumbbell, ChevronLeft, ChevronRight, Plus, Trash2, Timer, Footprints, A
 import { Dialog, Empty, PageLoader, Seg, Check2, Ring, useToast } from '../components/ui'
 import { sb, dbRun } from '../lib/supabase'
 import { uid, today, addDays, fmtDay, relDay, fmtNum, plural, nowIso, parseYmd } from '../lib/utils'
+import DEMOS from '../lib/exercise-demos.json'
 import {
   EXERCISES, DAYS, CYCLE, warmupFor, cooldownFor, nextDay, suggest, setLabel, sessionStats, supportiveMessage,
   MEALS, FOOD_PRESETS, DEFAULT_TARGETS,
@@ -53,7 +54,7 @@ function Workout() {
   const todays = sessions?.find(s => s.date === d) || null
   const dayType = todays?.day_type || override || (sessions ? nextDay(sessions) : null)
   const day = dayType ? DAYS[dayType] : null
-  const ids = useMemo(() => day ? [...day.lifts, ...day.abs] : [], [dayType])
+  const ids = useMemo(() => day ? [...day.lifts, ...day.abs, ...(day.posture || [])] : [], [dayType])
 
   useEffect(() => {
     if (!ids.length) { setAllSets([]); return }
@@ -169,7 +170,7 @@ function Workout() {
             <h2 className="font-serif text-[24px] leading-tight font-medium">{day.label}</h2>
             {dayType !== 'rest' && <p className="text-[14px] text-muted">{day.focus}</p>}
             <p className="text-[13px] text-muted mt-1">
-              {dayType === 'rest' ? 'No gym today. A long, easy walk and a stretch.' : `About 70 min: warm-up 8, lifting ~35, abs 6, ${day.cardio.name.toLowerCase()} ${cardioTarget}, cool-down 5.`}
+              {dayType === 'rest' ? 'No gym today. A long, easy walk and the posture routine at home.' : `About 75 min: warm-up 8, lifting ~35, abs 6, posture 4, ${day.cardio.name.toLowerCase()} ${cardioTarget}, cool-down 5.`}
             </p>
           </div>
           {!todays && (
@@ -191,7 +192,7 @@ function Workout() {
       </section>
 
       <Block title="Warm-up" sub="8 min" done={!!todays?.warmup_done} onToggle={() => patchSession({ warmup_done: !todays?.warmup_done })}>
-        <ul className="list-disc pl-5 text-[14px] flex flex-col gap-1">{warmupFor(dayType).map(w => <li key={w}>{w}</li>)}</ul>
+        <StepList steps={warmupFor(dayType)} />
       </Block>
 
       {day.lifts.length > 0 && <h3 className="h-section px-1 mt-2">Lifting</h3>}
@@ -204,10 +205,18 @@ function Workout() {
         <ExerciseCard key={id} ex={EXERCISES[id]} history={history[id] || []} current={current.filter(s => s.exercise_id === id)} onSave={saveSet} />
       ))}
 
+      {day.posture?.length > 0 && <>
+        <h3 className="h-section px-1 mt-2">Posture</h3>
+        <p className="text-[13px] text-muted px-1 -mt-3">For a rounded upper back: open the chest, strengthen the upper back. Light and slow.</p>
+      </>}
+      {(day.posture || []).map(id => (
+        <ExerciseCard key={id} ex={EXERCISES[id]} history={history[id] || []} current={current.filter(s => s.exercise_id === id)} onSave={saveSet} />
+      ))}
+
       <Cardio day={day} target={cardioTarget} session={todays} onSave={patchSession} />
 
       <Block title="Cool-down" sub="5 min" done={!!todays?.cooldown_done} onToggle={() => patchSession({ cooldown_done: !todays?.cooldown_done })}>
-        <ul className="list-disc pl-5 text-[14px] flex flex-col gap-1">{cooldownFor(dayType).map(w => <li key={w}>{w}</li>)}</ul>
+        <StepList steps={cooldownFor(dayType)} />
       </Block>
 
       <button onClick={finish} className="btn btn-primary btn-lg self-stretch md:self-end">
@@ -287,6 +296,7 @@ function ExerciseCard({ ex, history, current, onSave }) {
   return (
     <article className="panel p-4 md:p-5" style={allDone ? { boxShadow: 'inset 0 0 0 1.5px var(--c-good)' } : undefined}>
       <div className="flex items-start gap-3">
+        <Demo id={ex.id} title={ex.name} cue={ex.cue} />
         <div className="flex-1 min-w-0">
           <h4 className="text-[16px] font-semibold leading-snug">{ex.name}</h4>
           <p className="text-[12.5px] text-muted">{ex.muscle} · {ex.sets} × {ex.repMin}–{ex.repMax} {unitShort}{ex.type === 'weight' ? ` · ${ex.unit}` : ''}</p>
@@ -307,6 +317,55 @@ function ExerciseCard({ ex, history, current, onSave }) {
       </div>
       {count < 6 && <button onClick={() => setCount(c => c + 1)} className="btn btn-quiet btn-sm mt-2"><Plus size={14} /> Add set</button>}
     </article>
+  )
+}
+
+// Two-frame demo (start and end position), alternating like a slow animation. Tap for a large view and steps.
+function Demo({ id, title, cue, small }) {
+  const demo = DEMOS[id]
+  const [frame, setFrame] = useState(0)
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!demo || demo.frames.length < 2) return
+    const t = setInterval(() => setFrame(f => 1 - f), 1100)
+    return () => clearInterval(t)
+  }, [demo])
+  if (!demo) return null
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} aria-label={`How to do ${title}`}
+        className={`${small ? 'w-[52px] h-[52px]' : 'w-[76px] h-[76px] md:w-[88px] md:h-[88px]'} rounded-[10px] overflow-hidden flex-shrink-0 bg-white shadow-[inset_0_0_0_1px_var(--c-line)]`}>
+        <img src={demo.frames[frame]} alt="" className="w-full h-full object-cover" loading="lazy" />
+      </button>
+      <Dialog open={open} onClose={() => setOpen(false)} title={title} width={520}>
+        <div className="grid grid-cols-2 gap-2">
+          {demo.frames.map((src, i) => (
+            <figure key={src} className="rounded-[10px] overflow-hidden bg-white shadow-[inset_0_0_0_1px_var(--c-line)]">
+              <img src={src} alt={`${title}, ${i === 0 ? 'start' : 'end'} position`} className="w-full aspect-square object-cover" />
+              <figcaption className="text-[12px] text-muted text-center py-1">{i === 0 ? 'Start' : 'End'}</figcaption>
+            </figure>
+          ))}
+        </div>
+        {cue && <p className="text-[14px] font-medium mt-4">{cue}</p>}
+        <ol className="list-decimal pl-5 mt-2 flex flex-col gap-1.5 text-[13.5px] text-muted">
+          {demo.steps.map(s => <li key={s}>{s}</li>)}
+        </ol>
+        <p className="text-[11.5px] text-faint mt-3">Images and steps from the public-domain Free Exercise DB.</p>
+      </Dialog>
+    </>
+  )
+}
+
+function StepList({ steps }) {
+  return (
+    <ul className="flex flex-col gap-2">
+      {steps.map(s => (
+        <li key={s.text} className="flex items-center gap-3 text-[14px]">
+          {s.img ? <Demo id={s.img} title={s.text} small /> : <span className="w-[52px] h-[52px] rounded-[10px] bg-sunken flex-shrink-0" aria-hidden="true" />}
+          <span>{s.text}</span>
+        </li>
+      ))}
+    </ul>
   )
 }
 

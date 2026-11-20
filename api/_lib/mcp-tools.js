@@ -20,6 +20,21 @@ const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frida
 const RESET_ORDER = ['workout_sets', 'workout_sessions', 'food_logs', 'body_weights', 'fitness_settings', 'habit_logs', 'goal_milestones', 'reading_sessions', 'notes', 'note_folders', 'books', 'authors', 'series',
   'reading_goals', 'tasks', 'habits', 'goals', 'journal_entries', 'pomodoro_sessions', 'writing_logs', 'custom_data']
 
+const BOOK_STATUS = ['unread', 'reading', 'completed', 'paused']
+
+// Fetches an image server-side and returns a small data: URL (the app's CSP only allows self/data images)
+async function fetchCover(url) {
+  if (!/^https:\/\//i.test(url)) throw new ToolError('cover_image_url must start with https://')
+  const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(10000) })
+  if (!res.ok) return null
+  const type = (res.headers.get('content-type') || '').split(';')[0].trim()
+  if (!/^image\/(jpeg|png|webp)$/.test(type)) return null
+  const buf = Buffer.from(await res.arrayBuffer())
+  if (buf.length < 1000) return null            // Open Library's 1×1 placeholder
+  if (buf.length > 450 * 1024) throw new ToolError('Cover image is too large (max 450 KB).')
+  return `data:${type};base64,${buf.toString('base64')}`
+}
+
 // ── Helpers ────────────────────────────────────────────────────
 export function uid() { return Date.now().toString(36) + crypto.randomBytes(3).toString('hex') }
 export const hashToken = t => crypto.createHash('sha256').update(String(t)).digest('hex')
@@ -654,6 +669,106 @@ export const TOOLS = [
         protein_target: int(a.protein_target, 'protein_target', 20, 400) ?? cur?.protein_target ?? 140, updated_at: nowIso() }
       await q(ctx.sb.from('fitness_settings').upsert(row, { onConflict: 'user_id' }))
       return { kcal_target: row.kcal_target, protein_target: row.protein_target }
+    },
+  },
+
+  // ── Library ──
+  {
+    name: 'list_books', title: 'List books', annotations: RO,
+    description: 'Books in the library with author, status, pages read, plus the daily reading goal and reading done in the last 7 days.',
+    inputSchema: { type: 'object', properties: { status: { type: 'string', enum: [...BOOK_STATUS, 'all'], description: 'Default all.' } } },
+    run: async (ctx, a) => {
+      const status = pick(a.status, 'status', [...BOOK_STATUS, 'all']) || 'all'
+      let qb = ctx.sb.from('books').select('id,title,author_id,total_pages,pages_read,status,genres,rating,completed_at,created_at').eq('user_id', ctx.userId)
+      if (status !== 'all') qb = qb.eq('status', status)
+      const [books, authors, goal, sessions] = await Promise.all([
+        q(qb), q(ctx.sb.from('authors').select('id,name').eq('user_id', ctx.userId)),
+        q(ctx.sb.from('reading_goals').select('goal_type,target').eq('user_id', ctx.userId).eq('active', true).limit(1)),
+        q(ctx.sb.from('reading_sessions').select('book_id,date,start_page,end_page,duration_min').eq('user_id', ctx.userId).gte('date', addDays(ctx.today, -6))),
+      ])
+      const an = Object.fromEntries(authors.map(x => [x.id, x.name]))
+      return {
+        daily_goal: goal[0] || null,
+        last_7_days: { minutes: sessions.reduce((t, x) => t + (x.duration_min || 0), 0), pages: sessions.reduce((t, x) => t + Math.max(0, x.end_page - x.start_page), 0), days_read: new Set(sessions.map(x => x.date)).size },
+        books: books.map(b => clean({ id: b.id, title: b.title, author: an[b.author_id], status: b.status, pages: `${b.pages_read || 0}/${b.total_pages || '?'}`, genres: b.genres?.length ? b.genres : undefined, rating: b.rating || undefined, completed_at: b.completed_at || undefined })),
+      }
+    },
+  },
+  {
+    name: 'add_book', title: 'Add book', annotations: WRITE,
+    description: 'Add a book to the library. Pass isbn (ISBN-10 or ISBN-13) to fetch its cover from Open Library automatically, or cover_image_url for a direct image link. Creates the author if needed.',
+    inputSchema: { type: 'object', required: ['title', 'author'], properties: {
+      title: { type: 'string' }, author: { type: 'string' }, description: { type: 'string' }, total_pages: { type: 'integer' },
+      genres: { type: 'array', items: { type: 'string' } }, status: { type: 'string', enum: BOOK_STATUS },
+      isbn: { type: 'string' }, cover_image_url: { type: 'string' },
+    } },
+    run: async (ctx, a) => {
+      const title = text(a.title, 'title', { max: 500, required: true })
+      const authorName = text(a.author, 'author', { max: 200, required: true })
+      const dupe = await q(ctx.sb.from('books').select('id').eq('user_id', ctx.userId).ilike('title', title.replace(/[%_\\]/g, m => '\\' + m)).limit(1))
+      if (dupe.length) throw new ToolError(`“${title}” is already in the library (id ${dupe[0].id}).`)
+      const authors = await q(ctx.sb.from('authors').select('id,name').eq('user_id', ctx.userId))
+      let author = authors.find(x => x.name.trim().toLowerCase() === authorName.toLowerCase())
+      if (!author) {
+        author = { id: uid(), user_id: ctx.userId, name: authorName, bio: '', created_at: ctx.today }
+        await q(ctx.sb.from('authors').insert(author))
+      }
+      let cover = null, coverNote
+      const isbn = a.isbn ? String(a.isbn).replace(/[^0-9Xx]/g, '') : ''
+      if (isbn && !/^(\d{9}[\dXx]|\d{13})$/.test(isbn)) throw new ToolError('isbn must be 10 or 13 digits.')
+      let found = null
+      try {
+        if (isbn) cover = await fetchCover(`https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`)
+        if (!cover && a.cover_image_url) cover = await fetchCover(text(a.cover_image_url, 'cover_image_url', { max: 1000 }))
+        if (!cover) {
+          // Fall back to an Open Library search by title + author
+          const u = `https://openlibrary.org/search.json?title=${encodeURIComponent(title)}&author=${encodeURIComponent(authorName)}&fields=cover_i,number_of_pages_median&limit=1`
+          const r = await fetch(u, { signal: AbortSignal.timeout(10000), headers: { 'User-Agent': 'MadFocus/1.0 (personal library)' } })
+          found = r.ok ? (await r.json()).docs?.[0] : null
+          if (found?.cover_i) cover = await fetchCover(`https://covers.openlibrary.org/b/id/${found.cover_i}-L.jpg?default=false`)
+        }
+      } catch (e) { coverNote = e instanceof ToolError ? e.message : 'Couldn’t reach Open Library for a cover.' }
+      if (!cover) coverNote ||= 'No cover found; you can add one in the app.'
+      const row = {
+        id: uid(), user_id: ctx.userId, title, author_id: author.id, series_id: null, series_order: null, cover_url: cover,
+        description: text(a.description, 'description', { max: 5000 }) || '', total_pages: int(a.total_pages, 'total_pages', 0, 20000) ?? (found?.number_of_pages_median || 0),
+        genres: textList(a.genres, 'genres', 10) || [], status: pick(a.status, 'status', BOOK_STATUS) || 'unread', pages_read: 0,
+        rating: null, review: '', completed_at: null, created_at: ctx.today,
+      }
+      await q(ctx.sb.from('books').insert(row))
+      return clean({ added: { id: row.id, title, author: author.name, status: row.status, total_pages: row.total_pages, has_cover: !!cover }, cover_note: coverNote })
+    },
+  },
+  {
+    name: 'update_book', title: 'Update book', annotations: WRITE,
+    description: 'Change a book: status (unread, reading, completed, paused), pages read, total pages, rating (1-5), review or description.',
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'string' }, status: { type: 'string', enum: BOOK_STATUS }, pages_read: { type: 'integer' }, total_pages: { type: 'integer' },
+      rating: { type: 'integer' }, review: { type: 'string' }, description: { type: 'string' },
+    } },
+    run: async (ctx, a) => {
+      const b = await owned(ctx, 'books', a.id, 'book')
+      const row = clean({
+        status: pick(a.status, 'status', BOOK_STATUS), pages_read: int(a.pages_read, 'pages_read', 0, 20000), total_pages: int(a.total_pages, 'total_pages', 0, 20000),
+        rating: int(a.rating, 'rating', 1, 5), review: text(a.review, 'review', { max: 50000 }), description: text(a.description, 'description', { max: 5000 }),
+      })
+      if (row.status === 'completed' && !b.completed_at) row.completed_at = ctx.today
+      if (!Object.keys(row).length) throw new ToolError('Nothing to change.')
+      await q(ctx.sb.from('books').update(row).eq('id', b.id).eq('user_id', ctx.userId))
+      return { updated: b.title, ...row }
+    },
+  },
+  {
+    name: 'set_reading_goal', title: 'Set daily reading goal', annotations: WRITE,
+    description: 'Set the daily reading goal shown in the library: a number of pages or minutes per day.',
+    inputSchema: { type: 'object', required: ['goal_type', 'target'], properties: { goal_type: { type: 'string', enum: ['pages', 'minutes'] }, target: { type: 'integer' } } },
+    run: async (ctx, a) => {
+      const goal_type = pick(a.goal_type, 'goal_type', ['pages', 'minutes'])
+      const target = int(a.target, 'target', 1, 1000)
+      if (!goal_type || !target) throw new ToolError('goal_type and target are required.')
+      const cur = await q(ctx.sb.from('reading_goals').select('id,created_at').eq('user_id', ctx.userId).eq('active', true).limit(1))
+      await q(ctx.sb.from('reading_goals').upsert({ id: cur[0]?.id || uid(), user_id: ctx.userId, goal_type, target, active: true, created_at: cur[0]?.created_at || ctx.today }, { onConflict: 'id' }))
+      return { daily_goal: { goal_type, target } }
     },
   },
 
