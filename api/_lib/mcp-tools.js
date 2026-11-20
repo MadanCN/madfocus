@@ -14,6 +14,7 @@ const TRACK = ['simple', 'variants', 'writing']
 const CATEGORIES = ['Health', 'Mind', 'Creativity', 'Learning', 'Relationships', 'Finance', 'Spirituality', 'Work', 'Other']
 const HORIZONS = ['monthly', 'quarterly', 'yearly']
 const GOAL_STATUS = ['active', 'paused', 'done']
+const METRICS = ['none', 'minutes', 'reading', 'writing', 'workout', 'screentime']
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 // Children before parents. Keeps the account, profile and Claude keys.
@@ -113,6 +114,7 @@ const taskOut = r => clean({
   project: r.project || undefined, type: r.type || undefined,
   status: r.kanban_status || (r.done ? 'done' : 'todo'), done: !!r.done, completed_at: r.completed_at || undefined,
   recurring: r.is_recurring ? (r.recurrence_rule || 'daily') + (r.recurrence_end ? ` until ${r.recurrence_end}` : '') : undefined,
+  habit_id: r.habit_id || undefined,
 })
 const goalOut = (g, ms) => clean({
   id: g.id, title: g.title, description: g.description || undefined, horizon: g.horizon, status: g.status,
@@ -141,15 +143,22 @@ function taskFields(a, creating) {
     is_recurring: bool(a.is_recurring, 'is_recurring'),
     recurrence_rule: pick(a.recurrence_rule, 'recurrence_rule', RECUR),
     recurrence_end: date(a.recurrence_end, 'recurrence_end'),
+    habit_id: a.habit_id === null ? null : text(a.habit_id, 'habit_id', { max: 64 }),
   })
   if (row.project === '') row.project = null
+  if (row.habit_id === '') row.habit_id = null
   if (row.type === '') row.type = null
   if (creating && row.recurrence_rule && row.is_recurring === undefined) row.is_recurring = true
   return row
 }
 
+async function checkHabit(ctx, row) {
+  if (row.habit_id) await owned(ctx, 'habits', row.habit_id, 'habit')
+}
+
 async function insertTask(ctx, a) {
   const row = taskFields(a, true)
+  await checkHabit(ctx, row)
   const status = row.kanban_status || 'todo'
   const ins = {
     id: uid(), user_id: ctx.userId, created_at: ctx.today, notes: '', priority: 'P3', dep_ids: [],
@@ -184,6 +193,7 @@ const TASK_PROPS = {
   is_recurring: { type: 'boolean' },
   recurrence_rule: { type: 'string', enum: RECUR },
   recurrence_end: { type: ['string', 'null'], description: 'YYYY-MM-DD last day the task repeats.' },
+  habit_id: { type: ['string', 'null'], description: 'Link to a habit: when the user ticks this task in the app, it asks for the habit\'s numbers (minutes, pages, words…) and checks the habit in. Use with a recurring task matching the habit\'s frequency.' },
 }
 
 // ── Tool list ──────────────────────────────────────────────────
@@ -203,7 +213,7 @@ export const TOOLS = [
       const [tasks, habits, logs, writing, goals, ms, journal] = await Promise.all([
         q(sb.from('tasks').select('*').eq('user_id', u)),
         q(sb.from('habits').select('*').eq('user_id', u)),
-        q(sb.from('habit_logs').select('habit_id,date,variant,duration_min').eq('user_id', u).gte('date', since).lte('date', day)),
+        q(sb.from('habit_logs').select('*').eq('user_id', u).gte('date', since).lte('date', day)),
         q(sb.from('writing_logs').select('date,chapters,word_count').eq('user_id', u).gte('date', since).lte('date', day)),
         q(sb.from('goals').select('*').eq('user_id', u).neq('status', 'done')),
         q(sb.from('goal_milestones').select('*').eq('user_id', u).order('sort_order', { ascending: true })),
@@ -228,7 +238,11 @@ export const TOOLS = [
           return clean({
             id: h.id, name: h.name, freq: h.freq, track_type: h.track_type, category: h.category || undefined,
             variants: h.variants?.length ? h.variants : undefined,
+            metric: h.metric && h.metric !== 'none' ? h.metric : undefined,
             done_on_date: !!todays, variant_on_date: todays?.variant || undefined, minutes_on_date: todays?.duration_min || undefined,
+            amount_on_date: todays?.amount != null ? Number(todays.amount) : undefined, note_on_date: todays?.note || undefined,
+            minutes_last_7: entries.filter(x => x.date > week).reduce((t, x) => t + (x.duration_min || 0), 0) || undefined,
+            amount_last_7: entries.filter(x => x.date > week).reduce((t, x) => t + (Number(x.amount) || 0), 0) || undefined,
             streak: streak(dates, day), days_done_last_7: dates.filter(x => x > week).length,
           })
         }),
@@ -292,6 +306,7 @@ export const TOOLS = [
     run: async (ctx, a) => {
       const t = await owned(ctx, 'tasks', a.id, 'task')
       const row = taskFields(a, false)
+      await checkHabit(ctx, row)
       const done = bool(a.done, 'done')
       if (done !== undefined) {
         row.done = done
@@ -351,7 +366,7 @@ export const TOOLS = [
       const since = addDays(ctx.today, -Math.max(days, 60))
       const [habits, logs, writing] = await Promise.all([
         q(ctx.sb.from('habits').select('*').eq('user_id', ctx.userId)),
-        q(ctx.sb.from('habit_logs').select('habit_id,date,variant,duration_min').eq('user_id', ctx.userId).gte('date', since)),
+        q(ctx.sb.from('habit_logs').select('*').eq('user_id', ctx.userId).gte('date', since)),
         q(ctx.sb.from('writing_logs').select('date,chapters,word_count').eq('user_id', ctx.userId).gte('date', since)),
       ])
       const from = addDays(ctx.today, -(days - 1))
@@ -365,7 +380,8 @@ export const TOOLS = [
             id: h.id, name: h.name, freq: h.freq, track_type: h.track_type, category: h.category || undefined,
             variants: h.variants?.length ? h.variants : undefined, archived: h.archived || undefined,
             streak: streak(entries.map(e => e.date), ctx.today),
-            log: entries.filter(e => e.date >= from).sort((x, y) => x.date.localeCompare(y.date)),
+            metric: h.metric && h.metric !== 'none' ? h.metric : undefined,
+            log: entries.filter(e => e.date >= from).sort((x, y) => x.date.localeCompare(y.date)).map(e => clean({ date: e.date, variant: e.variant || undefined, minutes: e.duration_min || undefined, amount: e.amount != null ? Number(e.amount) : undefined, note: e.note || undefined, chapters: e.chapters, words: e.word_count })),
           })
         }),
       }
@@ -377,6 +393,7 @@ export const TOOLS = [
     inputSchema: { type: 'object', required: ['name'], properties: {
       name: { type: 'string' }, freq: { type: 'string', enum: FREQS }, track_type: { type: 'string', enum: TRACK },
       variants: { type: 'array', items: { type: 'string' } }, category: { type: 'string', enum: CATEGORIES },
+      metric: { type: 'string', enum: METRICS, description: 'What to ask for when it is ticked: minutes, reading (minutes+pages), writing (words+chapters), workout (from Fitness), screentime, or none.' },
     } },
     run: async (ctx, a) => {
       const h = {
@@ -384,6 +401,7 @@ export const TOOLS = [
         name: text(a.name, 'name', { max: 200, required: true }),
         freq: pick(a.freq, 'freq', FREQS) || 'daily', track_type: pick(a.track_type, 'track_type', TRACK) || 'simple',
         variants: textList(a.variants, 'variants') || [], category: pick(a.category, 'category', CATEGORIES) || '', archived: false,
+        ...(a.metric ? { metric: pick(a.metric, 'metric', METRICS) } : {}),
       }
       if (h.track_type === 'variants' && !h.variants.length) throw new ToolError('A variants habit needs at least one variant.')
       const r = await q(ctx.sb.from('habits').insert(h).select().single())
@@ -396,6 +414,7 @@ export const TOOLS = [
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'string' }, name: { type: 'string' }, freq: { type: 'string', enum: FREQS }, track_type: { type: 'string', enum: TRACK },
       variants: { type: 'array', items: { type: 'string' } }, category: { type: 'string', enum: CATEGORIES }, archived: { type: 'boolean' },
+      metric: { type: 'string', enum: METRICS },
     } },
     run: async (ctx, a) => {
       const h = await owned(ctx, 'habits', a.id, 'habit')
@@ -403,10 +422,11 @@ export const TOOLS = [
         name: a.name !== undefined ? text(a.name, 'name', { max: 200, required: true }) : undefined,
         freq: pick(a.freq, 'freq', FREQS), track_type: pick(a.track_type, 'track_type', TRACK),
         variants: textList(a.variants, 'variants'), category: pick(a.category, 'category', CATEGORIES), archived: bool(a.archived, 'archived'),
+        metric: pick(a.metric, 'metric', METRICS),
       })
       if (!Object.keys(row).length) throw new ToolError('Nothing to change.')
       const r = await q(ctx.sb.from('habits').update(row).eq('id', h.id).eq('user_id', ctx.userId).select().single())
-      return { updated: { id: r.id, name: r.name, freq: r.freq, track_type: r.track_type, category: r.category, variants: r.variants, archived: r.archived } }
+      return { updated: { id: r.id, name: r.name, freq: r.freq, track_type: r.track_type, metric: r.metric, category: r.category, variants: r.variants, archived: r.archived } }
     },
   },
   {

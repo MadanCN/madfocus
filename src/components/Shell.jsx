@@ -12,6 +12,7 @@ import Capture from './Capture'
 import CoachDrawer from './CoachDrawer'
 import FocusOverlay from './FocusOverlay'
 import TaskSheet from './TaskSheet'
+import HabitLogDialog from './HabitLogDialog'
 
 const ShellCtx = createContext(null)
 export const useShell = () => useContext(ShellCtx)
@@ -90,6 +91,7 @@ export default function Shell({ children }) {
       <Capture open={captureOpen} mode={captureMode} setMode={setCaptureMode}
         onClose={() => setCaptureOpen(false)} onOpenTask={openTask} />
       <CoachDrawer open={coachOpen} onClose={() => setCoachOpen(false)} />
+      <HabitLogDialog />
       <FocusOverlay />
       <TaskSheet id={taskId} onClose={() => setTaskId(null)} />
     </ShellCtx.Provider>

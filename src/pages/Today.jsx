@@ -8,7 +8,8 @@ import { Check2, useToast, PageLoader, SaveState } from '../components/ui'
 import { sb } from '../lib/supabase'
 import { useBus } from '../lib/bus'
 import { useAutosave } from '../lib/useAutosave'
-import { loadTasks, completeTask, createTask, pickNextUp, sortTasks } from '../lib/tasks'
+import { loadTasks, createTask, pickNextUp, sortTasks } from '../lib/tasks'
+import { completeWithHabit, askHabitNumbers, ASKS_FOR_NUMBERS } from '../lib/habitTasks'
 import { loadHabitData, setLog, saveWriting } from '../lib/habits'
 import { parseTask } from '../lib/parse'
 import {
@@ -64,7 +65,8 @@ export default function Today() {
   async function toggleTask(t) {
     setTasks(p => p.map(x => x.id === t.id ? { ...x, done: !x.done, completedAt: !x.done ? d : null } : x))
     try {
-      const res = await completeTask(t)
+      const res = await completeWithHabit(t)
+      if (!res) { setTasks(p => p.map(x => x.id === t.id ? t : x)); return }
       setTasks(p => p.map(x => x.id === t.id ? res.updated : x))
       const msg = res.rolledTo ? `Done. Next one ${relDay(res.rolledTo).toLowerCase()}` : t.done ? 'Marked not done' : `Done: ${t.title}`
       toast(msg, { action: { label: 'Undo', onClick: async () => { await res.undo(); reloadTasks() } } })
@@ -271,6 +273,7 @@ function HabitsToday({ habits, logs, setHab }) {
   const [timeFor, setTimeFor] = useState(null)
 
   async function apply(h, entry) {
+    if (entry && !(logs[h.id] || []).some(l => l.date === d) && ASKS_FOR_NUMBERS.includes(h.metric)) { await askHabitNumbers(h.id, d); return }
     const prev = (logs[h.id] || []).find(l => l.date === d) || null
     setHab(s => ({ ...s, logs: { ...s.logs, [h.id]: [...(s.logs[h.id] || []).filter(l => l.date !== d), ...(entry ? [{ date: d, ...entry }] : [])] } }))
     try {

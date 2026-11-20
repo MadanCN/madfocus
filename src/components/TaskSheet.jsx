@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react'
 import { Trash2, Timer, Repeat, CalendarDays, Flag, Hash, Tag, Link2, X } from 'lucide-react'
 import { Sheet, SaveState, Check2, useConfirm, useToast, Spinner } from './ui'
 import { sb } from '../lib/supabase'
-import { rowToTask, updateTask, deleteTask, completeTask, RECURRENCE, STATUSES } from '../lib/tasks'
+import { rowToTask, updateTask, deleteTask, RECURRENCE, STATUSES } from '../lib/tasks'
+import { completeWithHabit } from '../lib/habitTasks'
 import { useAutosave } from '../lib/useAutosave'
 import { emit } from '../lib/bus'
 import { today, addDays, relDay, fmtDay, PRIORITIES } from '../lib/utils'
@@ -44,7 +45,8 @@ export default function TaskSheet({ id, onClose }) {
   async function toggleDone() {
     await flush()
     try {
-      const res = await completeTask(task)
+      const res = await completeWithHabit(task)
+      if (!res) return
       setTask(res.updated)
       emit('task:patch', { id: task.id, patch: res.updated })
       if (res.rolledTo) toast(`Logged. Next one ${relDay(res.rolledTo).toLowerCase()}`, { action: { label: 'Undo', onClick: async () => { await res.undo(); setTask(task) } } })

@@ -4,7 +4,8 @@ import { Plus, List, Columns3, Repeat, Link2, CalendarClock, Trash2, ArrowRight,
 import { useShell } from '../components/Shell'
 import { Check2, Menu, Seg, Empty, PageLoader, useToast, useConfirm } from '../components/ui'
 import { useBus } from '../lib/bus'
-import { loadTasks, completeTask, createTask, deleteTask, updateTask, sortTasks, STATUSES } from '../lib/tasks'
+import { loadTasks, createTask, deleteTask, updateTask, sortTasks, STATUSES } from '../lib/tasks'
+import { completeWithHabit } from '../lib/habitTasks'
 import { parseTask } from '../lib/parse'
 import { today, addDays, dueLabel, relDay, plural, PRIORITIES } from '../lib/utils'
 
@@ -29,7 +30,8 @@ export default function Tasks() {
   async function toggle(t) {
     setTasks(p => p.map(x => x.id === t.id ? { ...x, done: !x.done } : x))
     try {
-      const res = await completeTask(t)
+      const res = await completeWithHabit(t)
+      if (!res) { setTasks(p => p.map(x => x.id === t.id ? t : x)); return }
       setTasks(p => p.map(x => x.id === t.id ? res.updated : x))
       toast(res.rolledTo ? `Done. Next one ${relDay(res.rolledTo).toLowerCase()}` : t.done ? 'Marked not done' : 'Task completed',
         { action: { label: 'Undo', onClick: async () => { await res.undo(); reload() } } })

@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Dumbbell, ChevronLeft, ChevronRight, Plus, Trash2, Timer, Footprints, ArrowUp, ArrowDown, Flame, Scale, Trophy, X, Pencil } from 'lucide-react'
 import { Dialog, Empty, PageLoader, Seg, Check2, Ring, useToast } from '../components/ui'
 import { sb, dbRun } from '../lib/supabase'
+import { setLog } from '../lib/habits'
+import { syncHabitTask } from '../lib/habitTasks'
 import { uid, today, addDays, fmtDay, relDay, fmtNum, plural, nowIso, parseYmd } from '../lib/utils'
 import DEMOS from '../lib/exercise-demos.json'
 import {
@@ -251,14 +253,14 @@ function Workout() {
 
 async function logGymHabit(dayType, date) {
   try {
+    const { data } = await sb.from('habits').select('*')
+    const row = (data || []).find(x => !x.archived && (x.metric === 'workout' || /gym/i.test(x.name)))
+    if (!row) return
     const group = DAYS[dayType].group
-    if (group === 'rest') return
-    const { data } = await sb.from('habits').select('id,name,track_type,variants,archived')
-    const h = (data || []).find(x => !x.archived && /gym/i.test(x.name))
-    if (!h) return
+    if (group === 'rest') return syncHabitTask(row.id, date)
     const map = { push: 'Push', pull: 'Pull', legs: 'Legs' }
-    const variant = h.track_type === 'variants' && (h.variants || []).includes(map[group]) ? map[group] : null
-    await sb.from('habit_logs').upsert({ habit_id: h.id, date, variant })
+    const variant = row.track_type === 'variants' && (row.variants || []).includes(map[group]) ? map[group] : null
+    await setLog(row.id, date, { variant, duration_min: null })
   } catch { /* the workout itself is saved; the habit tick is a bonus */ }
 }
 

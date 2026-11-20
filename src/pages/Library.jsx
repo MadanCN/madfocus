@@ -8,6 +8,8 @@ import { sb, dbRun } from '../lib/supabase'
 import { useAutosave } from '../lib/useAutosave'
 import { uid, today, fmtDay, fmtMinutes, fmtClock, plural, parseYmd, nowIso, weekOffset, weekdayLabels } from '../lib/utils'
 import { useAuth } from '../contexts/AuthContext'
+import { setLog } from '../lib/habits'
+import { habitByMetric } from '../lib/habitTasks'
 
 const STATUS = { unread: 'Want to read', reading: 'Reading', completed: 'Finished', paused: 'Paused' }
 
@@ -601,6 +603,13 @@ async function recordSession(book, start, end, minutes) {
   const done = book.total_pages > 0 && pages >= book.total_pages
   const patch = { pages_read: pages, status: done ? 'completed' : 'reading', ...(done ? { completed_at: today() } : {}) }
   await dbRun('Update book', () => sb.from('books').update(patch).eq('id', book.id))
+  try {
+    const h = await habitByMetric('reading')
+    if (h) {
+      const { data: prev } = await sb.from('habit_logs').select('duration_min,amount').eq('habit_id', h.id).eq('date', s.date).maybeSingle()
+      await setLog(h.id, s.date, { variant: null, duration_min: (prev?.duration_min || 0) + s.duration_min, amount: (Number(prev?.amount) || 0) + Math.max(0, end - start) })
+    }
+  } catch { /* habit tick is a bonus */ }
   return [s, { ...book, ...patch }]
 }
 

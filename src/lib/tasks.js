@@ -23,7 +23,7 @@ export function rowToTask(r) {
     done: !!r.done, completedAt: r.completed_at || null, depIds: r.dep_ids || [],
     createdAt: r.created_at, status: r.kanban_status || (r.done ? 'done' : 'todo'),
     isRecurring: !!r.is_recurring, recurrenceRule: r.recurrence_rule || 'daily',
-    recurrenceEnd: r.recurrence_end || null, parentId: r.parent_task_id || null,
+    recurrenceEnd: r.recurrence_end || null, parentId: r.parent_task_id || null, habitId: r.habit_id || null,
   }
 }
 
@@ -33,12 +33,12 @@ export function patchToRow(p) {
     title: 'title', notes: 'notes', priority: 'priority', due: 'due', project: 'project',
     type: 'type', done: 'done', completedAt: 'completed_at', depIds: 'dep_ids',
     status: 'kanban_status', isRecurring: 'is_recurring', recurrenceRule: 'recurrence_rule',
-    recurrenceEnd: 'recurrence_end',
+    recurrenceEnd: 'recurrence_end', habitId: 'habit_id',
   }
   const row = {}
   for (const [k, v] of Object.entries(p)) {
     if (!(k in map)) continue
-    row[map[k]] = (v === '' && ['due', 'project', 'type', 'recurrenceEnd'].includes(k)) ? null : v
+    row[map[k]] = (v === '' && ['due', 'project', 'type', 'recurrenceEnd', 'habitId'].includes(k)) ? null : v
   }
   return row
 }

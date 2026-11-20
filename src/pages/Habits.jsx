@@ -4,6 +4,7 @@ import { Dialog, Sheet, Menu, Empty, PageLoader, SaveState, useToast, useConfirm
 import { useBus, emit } from '../lib/bus'
 import { useAutosave } from '../lib/useAutosave'
 import { loadHabitData, createHabit, updateHabit, deleteHabit, setLog, saveWriting, CATEGORIES } from '../lib/habits'
+import { METRICS, askHabitNumbers, ASKS_FOR_NUMBERS } from '../lib/habitTasks'
 import { sb, dbRun } from '../lib/supabase'
 import { today, addDays, parseYmd, fmtDay, relDay, fmtMinutes, fmtNum, streakFrom, plural, weekOffset } from '../lib/utils'
 import { useAuth } from '../contexts/AuthContext'
@@ -35,6 +36,7 @@ export default function Habits() {
   const week = Array.from({ length: 7 }, (_, i) => addDays(d, i - 6))
 
   async function toggleDay(h, date, entry) {
+    if (entry && !(data.logs[h.id] || []).some(l => l.date === date) && ASKS_FOR_NUMBERS.includes(h.metric)) { await askHabitNumbers(h.id, date); return }
     const prev = (data.logs[h.id] || []).find(l => l.date === date) || null
     setData(s => ({ ...s, logs: { ...s.logs, [h.id]: [...(s.logs[h.id] || []).filter(l => l.date !== date), ...(entry ? [{ date, ...entry }] : [])] } }))
     try {
@@ -342,6 +344,9 @@ function HabitSheet({ habit, logs, writing, onClose, setData, onToggle, onArchiv
   const isWriting = h?.trackType === 'writing'
   const dates = h ? (isWriting ? writing.map(w => w.date) : logs.map(l => l.date)) : []
   const totalMin = logs.reduce((a, l) => a + (l.duration_min || 0), 0)
+  const totalPages = logs.reduce((a, l) => a + (l.amount || 0), 0)
+  const recent = [...logs].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 7).filter(l => l.amount != null)
+  const avgScreen = recent.length ? Math.round(recent.reduce((a, l) => a + l.amount, 0) / recent.length) : 0
 
   return (
     <Sheet open={!!habit} onClose={async () => { await flush(); onClose() }} label="Habit details"
@@ -362,7 +367,10 @@ function HabitSheet({ habit, logs, writing, onClose, setData, onToggle, onArchiv
               ['Streak', streakFrom(dates) + 'd'],
               ['Best', bestStreak(dates) + 'd'],
               [isWriting ? 'Days written' : 'Days done', dates.length],
-              isWriting ? ['Words', fmtNum(writing.reduce((a, w) => a + (w.word_count || 0), 0))] : ['Time', totalMin ? fmtMinutes(totalMin) : '—'],
+              isWriting ? ['Words', fmtNum(writing.reduce((a, w) => a + (w.word_count || 0), 0))]
+                : h.metric === 'reading' ? ['Pages', fmtNum(totalPages)]
+                : h.metric === 'screentime' ? ['Avg screen (7)', avgScreen ? fmtMinutes(avgScreen) : '—']
+                : ['Time', totalMin ? fmtMinutes(totalMin) : '—'],
             ].map(([l, v]) => (
               <div key={l} className="rounded-[12px] bg-sunken py-3">
                 <p className="text-[18px] font-semibold tnum">{v}</p>
@@ -393,6 +401,12 @@ function HabitSheet({ habit, logs, writing, onClose, setData, onToggle, onArchiv
               <label className="label" htmlFor="et">Tracking</label>
               <select id="et" className="input" value={h.trackType} onChange={e => set({ trackType: e.target.value })}>
                 {Object.entries(TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label" htmlFor="em">When you tick it (or its task), ask for</label>
+              <select id="em" className="input" value={h.metric || 'none'} onChange={e => set({ metric: e.target.value })}>
+                {Object.entries(METRICS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </div>
             {h.trackType === 'variants' && (
