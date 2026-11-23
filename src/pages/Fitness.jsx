@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Dumbbell, ChevronLeft, ChevronRight, Plus, Trash2, Timer, Footprints, ArrowUp, ArrowDown, Flame, Scale, Trophy, X, Pencil } from 'lucide-react'
-import { Dialog, Empty, PageLoader, Seg, Check2, Ring, useToast } from '../components/ui'
+import { Dumbbell, ChevronLeft, ChevronRight, Plus, Trash2, Timer, Footprints, ArrowUp, ArrowDown, Flame, Scale, Trophy, X, Pencil, Ruler, CalendarDays, Activity, Bell } from 'lucide-react'
+import { Dialog, Empty, PageLoader, Seg, Check2, Ring, useToast, useConfirm } from '../components/ui'
 import { sb, dbRun } from '../lib/supabase'
 import { setLog } from '../lib/habits'
 import { syncHabitTask } from '../lib/habitTasks'
@@ -9,6 +9,8 @@ import DEMOS from '../lib/exercise-demos.json'
 import {
   EXERCISES, DAYS, CYCLE, warmupFor, cooldownFor, nextDay, suggest, setLabel, sessionStats, supportiveMessage,
   MEALS, FOOD_PRESETS, DEFAULT_TARGETS,
+  CUSTOM, isCustom, sessionLabel, parseActivity,
+  BODY_GROUPS, BODY_METRICS, METRIC, MEASURE_EVERY, changeTone, fmtMetric,
 } from '../lib/fitness'
 
 const HUE = 'var(--m-fitness)'
@@ -24,10 +26,12 @@ export default function Fitness() {
           <p className="text-[14px] text-muted mt-1">Lift, walk, eat well. Just open today’s plan and begin.</p>
         </div>
         <Seg label="Section" value={tab} onChange={setTab}
-          options={[{ value: 'workout', label: 'Workout' }, { value: 'food', label: 'Food' }, { value: 'progress', label: 'Progress' }]} />
+          options={[{ value: 'workout', label: 'Workout' }, { value: 'food', label: 'Food' }, { value: 'history', label: 'History' }, { value: 'body', label: 'Body' }, { value: 'progress', label: 'Week' }]} />
       </header>
       {tab === 'workout' && <Workout />}
       {tab === 'food' && <Food />}
+      {tab === 'history' && <History />}
+      {tab === 'body' && <Body />}
       {tab === 'progress' && <Progress />}
     </div>
   )
@@ -53,7 +57,7 @@ function Workout() {
   }
   useEffect(() => { loadSessions() }, [])
 
-  const todays = sessions?.find(s => s.date === d) || null
+  const todays = sessions?.find(s => s.date === d && !isCustom(s)) || null
   const dayType = todays?.day_type || override || (sessions ? nextDay(sessions) : null)
   const day = dayType ? DAYS[dayType] : null
   const ids = useMemo(() => day ? [...day.lifts, ...day.abs, ...(day.posture || [])] : [], [dayType])
@@ -137,7 +141,7 @@ function Workout() {
     const cardio = { minutes: s.cardio_min, km: s.cardio_km, target: cardioTarget }
     const stats = sessionStats(dayType, current, prevBest, cardio)
     const weekStart = mondayOf(d)
-    const weekCount = (sessions || []).filter(x => x.date >= weekStart && x.finished_at && x.id !== s.id && x.day_type !== 'rest').length + (dayType === 'rest' ? 0 : 1)
+    const weekCount = (sessions || []).filter(x => x.date >= weekStart && x.finished_at && x.id !== s.id && x.day_type !== 'rest' && !isCustom(x)).length + (dayType === 'rest' ? 0 : 1)
     const msg = supportiveMessage(stats, dayType, weekCount)
     await patchSession({ finished_at: nowIso(), stats: { ...stats, message: msg } })
     logGymHabit(dayType, d)
@@ -711,7 +715,7 @@ function Progress() {
         {sessions.filter(s => s.finished_at).slice(0, 20).map(s => (
           <div key={s.id} className="row">
             <span className="w-[90px] text-[12.5px] text-muted">{fmtDay(s.date, { weekday: 'short', day: 'numeric', month: 'short' })}</span>
-            <span className="flex-1 text-[14.5px] font-medium">{DAYS[s.day_type]?.label || s.day_type}</span>
+            <span className="flex-1 text-[14.5px] font-medium">{sessionLabel(s)}</span>
             {s.stats?.prs?.length > 0 && <Trophy size={14} style={{ color: HUE }} aria-label="Personal best" />}
             <span className="text-[12.5px] text-muted tnum hidden sm:inline">{s.stats?.done ?? 0}/{s.stats?.planned ?? 0} sets</span>
             <span className="text-[12.5px] text-muted tnum w-[70px] text-right">{s.cardio_min ? `${Number(s.cardio_min)} min` : '–'}</span>
@@ -745,4 +749,748 @@ async function syncWeightGoal(latestKg) {
     const lost = Math.max(0, Math.min(g.target, Math.round(from - latestKg)))
     if (lost !== g.current) await sb.from('goals').update({ current: lost, updated_at: nowIso() }).eq('id', g.id)
   } catch {}
+}
+
+// ════════════════════════════════════════════════════════════════
+//  Shared helpers for History and Body
+// ════════════════════════════════════════════════════════════════
+function useWidth(ref, fallback = 600) {
+  const [w, setW] = useState(fallback)
+  useEffect(() => {
+    if (!ref.current) return
+    setW(Math.round(ref.current.clientWidth) || fallback)
+    const ro = new ResizeObserver(([e]) => setW(Math.max(200, Math.round(e.contentRect.width))))
+    ro.observe(ref.current)
+    return () => ro.disconnect()
+  }, [])
+  return w
+}
+
+const TONE_COLOR = { good: 'var(--c-good)', bad: 'var(--c-danger)', flat: 'var(--c-muted)' }
+const signed = (n, digits = 1) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n).toLocaleString('en-GB', { maximumFractionDigits: digits })}`
+
+async function findGymHabit() {
+  const { data } = await sb.from('habits').select('*')
+  return (data || []).find(x => !x.archived && (x.metric === 'workout' || /gym/i.test(x.name))) || null
+}
+
+// One bar per day. Click a bar to open that day.
+function DayBars({ days, field, target, unit, label, colorFor, onPick }) {
+  const ref = useRef(null)
+  const W = useWidth(ref)
+  const [hover, setHover] = useState(null)
+  const H = 150, padL = 40, padR = 6, padT = 12, padB = 22
+  const max = Math.max(target || 0, ...days.map(x => x[field] || 0), 1) * 1.12
+  const n = days.length
+  const bw = (W - padL - padR) / Math.max(1, n)
+  const y = v => padT + (1 - v / max) * (H - padT - padB)
+  const every = n <= 14 ? 1 : n <= 31 ? 5 : 14
+  const h = hover != null ? days[hover] : null
+  return (
+    <div ref={ref} className="relative w-full" onMouseLeave={() => setHover(null)}>
+      <svg width={W} height={H} role="img" aria-label={label} className="block">
+        <text x={padL - 6} y={y(0)} textAnchor="end" dominantBaseline="middle" className="fill-[var(--c-faint)] text-[10.5px] tnum">0</text>
+        {target ? <>
+          <line x1={padL} x2={W - padR} y1={y(target)} y2={y(target)} stroke="var(--c-muted)" strokeDasharray="4 4" strokeWidth="1" />
+          <text x={padL - 6} y={y(target)} textAnchor="end" dominantBaseline="middle" className="fill-[var(--c-muted)] text-[10.5px] tnum">{fmtNum(target)}</text>
+        </> : null}
+        <line x1={padL} x2={W - padR} y1={y(0)} y2={y(0)} stroke="var(--c-line)" strokeWidth="1" />
+        {days.map((d, i) => {
+          const v = d[field] || 0
+          const x = padL + i * bw
+          return (
+            <g key={d.date} onMouseEnter={() => setHover(i)} onClick={() => onPick(d.date)} className="cursor-pointer">
+              <rect x={x} y={padT} width={bw} height={H - padT - padB} fill="transparent" />
+              {v > 0 && <rect x={x + bw * 0.16} y={y(v)} width={Math.max(2, bw * 0.68)} height={Math.max(1, y(0) - y(v))} rx={Math.min(4, bw * 0.2)}
+                fill={colorFor(v)} opacity={hover == null || hover === i ? 1 : 0.55} />}
+              {(i % every === 0 || i === n - 1) && (
+                <text x={x + bw / 2} y={H - 6} textAnchor="middle" className="fill-[var(--c-faint)] text-[10.5px] tnum">
+                  {n <= 7 ? fmtDay(d.date, { weekday: 'narrow' }) : fmtDay(d.date, { day: 'numeric' })}
+                </text>
+              )}
+            </g>
+          )
+        })}
+      </svg>
+      {h && (
+        <div className="absolute top-0 pointer-events-none rounded-[8px] px-2.5 py-1.5 text-[12px] shadow-pop bg-surface whitespace-nowrap"
+          style={{ left: Math.min(Math.max(0, padL + hover * bw + bw / 2 - 70), W - 140) }}>
+          <b>{fmtDay(h.date, { weekday: 'short', day: 'numeric', month: 'short' })}</b> · <span className="tnum">{fmtNum(Math.round(h[field] || 0))} {unit}</span>
+          {target ? <span className="text-muted"> / {fmtNum(target)}</span> : null}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════
+//  History: what you did and ate, day by day
+// ════════════════════════════════════════════════════════════════
+function History() {
+  const toast = useToast()
+  const d = today()
+  const [range, setRange] = useState('14')
+  const [data, setData] = useState(null)
+  const [openDay, setOpenDay] = useState(null)
+  const [editing, setEditing] = useState(null) // custom session or {} for new
+  const [reload, setReload] = useState(0)
+  const from = addDays(d, -(Number(range) - 1))
+
+  useEffect(() => {
+    let live = true
+    Promise.all([
+      sb.from('workout_sessions').select('*').gte('date', from).lte('date', d).order('date', { ascending: true }),
+      sb.from('food_logs').select('*').gte('date', from).lte('date', d).order('created_at', { ascending: true }),
+      sb.from('body_weights').select('date,kg').gte('date', from).lte('date', d),
+      sb.from('fitness_settings').select('*').maybeSingle(),
+    ]).then(async ([s, f, w, t]) => {
+      if (s.error || f.error) toast('Couldn’t load your history. Has the fitness migration been run?', 'error')
+      const sessions = s.data || []
+      let sets = []
+      if (sessions.length) {
+        const r = await sb.from('workout_sets').select('*').in('session_id', sessions.map(x => x.id))
+        sets = r.data || []
+      }
+      if (!live) return
+      setData({
+        sessions, sets, food: f.data || [], weights: w.data || [],
+        targets: t.data ? { kcal_target: t.data.kcal_target, protein_target: t.data.protein_target } : DEFAULT_TARGETS,
+      })
+    })
+    return () => { live = false }
+  }, [range, reload])
+
+  const days = useMemo(() => {
+    if (!data) return []
+    const out = []
+    for (let x = from; x <= d; x = addDays(x, 1)) {
+      const food = data.food.filter(f => f.date === x)
+      out.push({
+        date: x,
+        sessions: data.sessions.filter(s => s.date === x && (s.finished_at || isCustom(s) || data.sets.some(z => z.session_id === s.id))),
+        food,
+        kcal: food.reduce((a, f) => a + (f.kcal || 0), 0),
+        protein: food.reduce((a, f) => a + Number(f.protein || 0), 0),
+        kg: data.weights.find(w => w.date === x)?.kg,
+      })
+    }
+    return out
+  }, [data])
+
+  if (!data) return <PageLoader />
+  const { targets } = data
+  const logged = days.filter(x => x.food.length)
+  const active = days.filter(x => x.sessions.length)
+  const avgKcal = logged.length ? Math.round(logged.reduce((a, x) => a + x.kcal, 0) / logged.length) : 0
+  const avgProtein = logged.length ? Math.round(logged.reduce((a, x) => a + x.protein, 0) / logged.length) : 0
+  const proteinHit = logged.filter(x => x.protein >= targets.protein_target).length
+  const day = openDay ? days.find(x => x.date === openDay) : null
+
+  return (
+    <div className="flex flex-col gap-5">
+      <section className="panel p-5">
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <h3 className="h-section flex items-center gap-2 mr-auto"><CalendarDays size={16} style={{ color: HUE }} /> Last {range} days</h3>
+          <Seg label="Range" value={range} onChange={setRange} options={[{ value: '7', label: '7d' }, { value: '14', label: '14d' }, { value: '30', label: '30d' }, { value: '90', label: '90d' }]} />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center">
+          <Stat label="Active days" value={`${active.length}/${days.length}`} />
+          <Stat label="Avg kcal (logged days)" value={logged.length ? fmtNum(avgKcal) : '–'} />
+          <Stat label="Avg protein" value={logged.length ? `${avgProtein} g` : '–'} />
+          <Stat label="Protein target hit" value={logged.length ? `${proteinHit}/${logged.length} days` : '–'} />
+        </div>
+        <ActivityStrip days={days} onPick={setOpenDay} />
+      </section>
+
+      <section className="panel p-5">
+        <div className="flex items-baseline gap-2 mb-2">
+          <h3 className="h-section flex items-center gap-2"><Flame size={16} style={{ color: HUE }} /> Calories</h3>
+          <span className="text-[12.5px] text-faint">dashed line = {fmtNum(targets.kcal_target)} kcal target · tap a bar for that day</span>
+        </div>
+        <DayBars days={days} field="kcal" target={targets.kcal_target} unit="kcal" label="Calories eaten per day"
+          colorFor={v => v > targets.kcal_target ? 'var(--c-danger)' : HUE} onPick={setOpenDay} />
+        <div className="flex items-baseline gap-2 mt-5 mb-2">
+          <h3 className="h-section">Protein</h3>
+          <span className="text-[12.5px] text-faint">target {targets.protein_target} g · green = target hit</span>
+        </div>
+        <DayBars days={days} field="protein" target={targets.protein_target} unit="g" label="Protein eaten per day"
+          colorFor={v => v >= targets.protein_target ? 'var(--c-good)' : 'var(--c-accent-mid)'} onPick={setOpenDay} />
+      </section>
+
+      <section className="panel p-1.5">
+        <div className="flex items-center gap-2 px-3.5 pt-3 pb-1">
+          <h3 className="h-section mr-auto">Day by day</h3>
+          <button onClick={() => setEditing({})} className="btn btn-quiet btn-sm"><Plus size={14} /> Log other workout</button>
+        </div>
+        {[...days].reverse().map(x => (
+          <button key={x.date} onClick={() => setOpenDay(x.date)} className="row row-hover w-full text-left items-start">
+            <span className="w-[86px] flex-shrink-0 pt-0.5">
+              <span className="block text-[13.5px] font-medium">{relDay(x.date) === 'Today' || relDay(x.date) === 'Yesterday' ? relDay(x.date) : fmtDay(x.date, { weekday: 'short', day: 'numeric' })}</span>
+              <span className="block text-[11.5px] text-faint">{fmtDay(x.date, { month: 'short', year: '2-digit' })}</span>
+            </span>
+            <span className="flex-1 min-w-0 flex flex-wrap gap-1.5 pt-0.5">
+              {x.sessions.length === 0 && <span className="text-[13px] text-faint">No workout</span>}
+              {x.sessions.map(s => (
+                <span key={s.id} className="chip inline-flex items-center gap-1" style={{ color: HUE }}>
+                  {isCustom(s) ? <Activity size={12} /> : s.day_type === 'rest' ? <Footprints size={12} /> : <Dumbbell size={12} />}
+                  <span className="text-ink truncate max-w-[180px]">{sessionLabel(s)}</span>
+                </span>
+              ))}
+            </span>
+            <span className="w-[112px] flex-shrink-0 text-right">
+              {x.food.length ? <>
+                <span className="block text-[13px] tnum" style={{ color: x.kcal > targets.kcal_target ? 'var(--c-danger)' : undefined }}>{fmtNum(x.kcal)} kcal</span>
+                <span className="block text-[12px] tnum" style={{ color: x.protein >= targets.protein_target ? 'var(--c-good)' : 'var(--c-muted)' }}>{Math.round(x.protein)} g protein</span>
+              </> : <span className="text-[12.5px] text-faint">No food logged</span>}
+            </span>
+          </button>
+        ))}
+      </section>
+
+      <DayDialog day={day} sets={data.sets} targets={targets} onClose={() => setOpenDay(null)}
+        onEdit={s => { setOpenDay(null); setEditing(s) }} onChanged={() => setReload(r => r + 1)} />
+      <CustomWorkoutDialog session={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setReload(r => r + 1) }} />
+    </div>
+  )
+}
+
+// One square per day: filled when you trained
+function ActivityStrip({ days, onPick }) {
+  return (
+    <div className="mt-4">
+      <div className="flex flex-wrap gap-[3px]" role="list" aria-label="Days with a workout">
+        {days.map(x => {
+          const on = x.sessions.length > 0
+          return (
+            <button key={x.date} role="listitem" onClick={() => onPick(x.date)} title={`${fmtDay(x.date, { weekday: 'short', day: 'numeric', month: 'short' })}: ${on ? x.sessions.map(sessionLabel).join(', ') : 'no workout'}`}
+              aria-label={`${fmtDay(x.date, { day: 'numeric', month: 'short' })}, ${on ? 'trained' : 'no workout'}`}
+              className="w-[18px] h-[18px] rounded-[4px]" style={{ background: on ? HUE : 'var(--c-sunken)', boxShadow: x.date === today() ? 'inset 0 0 0 1.5px var(--c-ink)' : undefined }} />
+          )
+        })}
+      </div>
+      <p className="text-[11.5px] text-faint mt-1.5">Each square is a day. Filled = you trained.</p>
+    </div>
+  )
+}
+
+function DayDialog({ day, sets, targets, onClose, onEdit, onChanged }) {
+  const confirm = useConfirm()
+  const toast = useToast()
+  async function removeSession(s) {
+    if (!(await confirm({ title: 'Delete this workout?', body: `“${sessionLabel(s)}” on ${fmtDay(s.date)} will be removed. This can’t be undone.`, confirmLabel: 'Delete workout' }))) return
+    try { await dbRun('Delete workout', () => sb.from('workout_sessions').delete().eq('id', s.id)); onClose(); onChanged() }
+    catch { toast('Couldn’t delete that workout.', 'error') }
+  }
+  return (
+    <Dialog open={!!day} onClose={onClose} title={day ? fmtDay(day.date, { weekday: 'long', day: 'numeric', month: 'long' }) : ''} width={560}>
+      {day && (
+        <div className="flex flex-col gap-5">
+          <section>
+            <h3 className="h-section flex items-center gap-2 mb-2"><Dumbbell size={15} style={{ color: HUE }} /> Exercise</h3>
+            {day.sessions.length === 0 && <p className="text-[13.5px] text-muted">No workout logged.</p>}
+            {day.sessions.map(s => <SessionDetail key={s.id} s={s} sets={sets.filter(x => x.session_id === s.id && x.done)} onEdit={() => onEdit(s)} onDelete={() => removeSession(s)} />)}
+          </section>
+
+          <section>
+            <div className="flex items-baseline gap-2 mb-2">
+              <h3 className="h-section flex items-center gap-2"><Flame size={15} style={{ color: HUE }} /> Food</h3>
+              {day.food.length > 0 && <span className="text-[12.5px] text-muted tnum ml-auto">
+                <span style={{ color: day.kcal > targets.kcal_target ? 'var(--c-danger)' : undefined }}>{fmtNum(day.kcal)}</span> / {fmtNum(targets.kcal_target)} kcal ·{' '}
+                <span style={{ color: day.protein >= targets.protein_target ? 'var(--c-good)' : undefined }}>{Math.round(day.protein)}</span> / {targets.protein_target} g protein
+              </span>}
+            </div>
+            {day.food.length === 0 && <p className="text-[13.5px] text-muted">Nothing logged.</p>}
+            {day.food.length > 0 && (
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <MiniBar label="Calories" value={day.kcal} target={targets.kcal_target} color={day.kcal > targets.kcal_target ? 'var(--c-danger)' : HUE} unit="kcal" />
+                <MiniBar label="Protein" value={day.protein} target={targets.protein_target} color="var(--c-good)" unit="g" />
+              </div>
+            )}
+            {MEALS.map(m => {
+              const list = day.food.filter(f => f.meal === m.id)
+              if (!list.length) return null
+              return (
+                <div key={m.id} className="mb-2">
+                  <p className="text-[12.5px] font-semibold text-muted px-1 flex">
+                    <span className="mr-auto">{m.label}</span>
+                    <span className="tnum font-normal">{fmtNum(list.reduce((a, f) => a + f.kcal, 0))} kcal · {Math.round(list.reduce((a, f) => a + Number(f.protein), 0))} g</span>
+                  </p>
+                  {list.map(f => (
+                    <div key={f.id} className="flex items-baseline gap-2 px-1 py-1 text-[13.5px] border-b border-line-soft last:border-0">
+                      <span className="flex-1 min-w-0 truncate">{f.name}{f.qty && <span className="text-faint"> · {f.qty}</span>}</span>
+                      <span className="tnum text-muted w-[64px] text-right">{f.kcal} kcal</span>
+                      <span className="tnum text-muted w-[44px] text-right">{Number(f.protein)} g</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
+          </section>
+
+          {day.kg && <p className="text-[13.5px] text-muted flex items-center gap-2"><Scale size={14} style={{ color: HUE }} /> Weighed in at <b className="text-ink tnum">{Number(day.kg)} kg</b></p>}
+        </div>
+      )}
+    </Dialog>
+  )
+}
+
+function MiniBar({ label, value, target, color, unit }) {
+  const pct = Math.min(100, (value / Math.max(1, target)) * 100)
+  return (
+    <div className="rounded-[10px] bg-sunken p-2.5">
+      <p className="text-[11.5px] text-muted">{label}</p>
+      <p className="text-[15px] font-semibold tnum">{fmtNum(Math.round(value))} <span className="text-[12px] text-muted font-normal">/ {fmtNum(target)} {unit}</span></p>
+      <div className="h-[5px] rounded-full bg-line mt-1.5 overflow-hidden"><div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} /></div>
+    </div>
+  )
+}
+
+function SessionDetail({ s, sets, onEdit, onDelete }) {
+  const custom = isCustom(s)
+  const day = DAYS[s.day_type]
+  const order = day ? [...day.lifts, ...day.abs, ...(day.posture || [])] : []
+  const ids = [...new Set([...order.filter(id => sets.some(x => x.exercise_id === id)), ...sets.map(x => x.exercise_id)])]
+  const groups = custom ? (s.activities || []).reduce((m, a) => { (m[a.group || ''] ||= []).push(a); return m }, {}) : null
+  return (
+    <div className="rounded-[12px] bg-sunken p-3.5 mb-2">
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-[15px] font-semibold">{sessionLabel(s)}</p>
+          {!custom && day && <p className="text-[12.5px] text-muted">{day.focus}{s.stats?.done != null ? ` · ${s.stats.done}/${s.stats.planned} sets` : ''}{s.stats?.volume ? ` · ${fmtNum(s.stats.volume)} kg lifted` : ''}</p>}
+        </div>
+        {custom && <>
+          <button onClick={onEdit} className="btn btn-quiet btn-sm btn-icon" aria-label="Edit workout"><Pencil size={14} /></button>
+          <button onClick={onDelete} className="btn btn-quiet btn-sm btn-icon" aria-label="Delete workout"><Trash2 size={14} /></button>
+        </>}
+      </div>
+      {!custom && (s.warmup_done || s.cooldown_done) && <p className="text-[12.5px] text-muted mt-1">{[s.warmup_done && 'Warm-up done', s.cooldown_done && 'Cool-down done'].filter(Boolean).join(' · ')}</p>}
+      {!custom && ids.length > 0 && (
+        <ul className="mt-2 flex flex-col gap-1">
+          {ids.map(id => {
+            const ex = EXERCISES[id]
+            const mine = sets.filter(x => x.exercise_id === id).sort((a, b) => a.set_no - b.set_no)
+            return (
+              <li key={id} className="flex items-baseline gap-2 text-[13.5px]">
+                <span className="flex-1 min-w-0 truncate">{ex?.name || id}</span>
+                <span className="tnum text-muted">{mine.map(x => ex ? setLabel(ex, { weight: Number(x.weight), reps: x.reps }) : x.reps).join(', ')}</span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {!custom && ids.length === 0 && s.day_type !== 'rest' && <p className="text-[13px] text-faint mt-1">No sets recorded.</p>}
+      {custom && Object.entries(groups).map(([g, list]) => (
+        <div key={g} className="mt-2">
+          {g && <p className="text-[11.5px] uppercase tracking-wide text-faint font-semibold">{g}</p>}
+          <ul className="flex flex-col gap-0.5">
+            {list.map((a, i) => (
+              <li key={i} className="flex items-baseline gap-2 text-[13.5px]">
+                <span className="flex-1 min-w-0">{a.name}</span>
+                {a.detail && <span className="tnum text-muted text-right">{a.detail}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {s.cardio_min ? <p className="text-[13px] mt-2 flex items-center gap-1.5"><Footprints size={13} style={{ color: HUE }} /> {Number(s.cardio_min)} min {s.cardio_kind || 'cardio'}{s.cardio_km ? `, ${Number(s.cardio_km)} km` : ''}</p> : null}
+      {s.notes && <p className="text-[12.5px] text-muted mt-2 whitespace-pre-line">{s.notes}</p>}
+    </div>
+  )
+}
+
+// Log a workout that isn't part of the Push/Pull/Legs program (mobility, bodyweight, a class…)
+function CustomWorkoutDialog({ session, onClose, onSaved }) {
+  const toast = useToast()
+  const open = !!session
+  const [f, setF] = useState({})
+  const [habit, setHabit] = useState(null)
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }))
+  useEffect(() => {
+    if (!open) return
+    const s = session || {}
+    setF({
+      date: s.date || today(), title: s.title || '',
+      lines: (s.activities || []).map(a => a.detail ? `${a.name} — ${a.detail}` : a.name).join('\n'),
+      cardio_min: s.cardio_min != null ? String(Number(s.cardio_min)) : '', cardio_kind: s.cardio_kind || 'walk',
+      notes: s.notes || '', tick: !s.id, variant: '',
+    })
+    findGymHabit().then(setHabit).catch(() => {})
+  }, [open])
+
+  async function save(e) {
+    e.preventDefault()
+    const activities = String(f.lines || '').split('\n').map(parseActivity).filter(Boolean).slice(0, 60)
+    const title = (f.title || '').trim() || 'Other workout'
+    if (!activities.length && !Number(f.cardio_min)) return toast('Add at least one exercise or some cardio minutes.', 'error')
+    const row = {
+      id: session.id || uid(), date: f.date, day_type: CUSTOM, title: title.slice(0, 120), activities,
+      started_at: session.started_at || nowIso(), finished_at: session.finished_at || nowIso(),
+      cardio_kind: f.cardio_min ? f.cardio_kind : null, cardio_min: f.cardio_min === '' ? null : Number(f.cardio_min),
+      notes: (f.notes || '').slice(0, 2000), stats: session.stats || {},
+    }
+    try {
+      await dbRun('Save workout', () => sb.from('workout_sessions').upsert(row))
+      if (f.tick && habit) {
+        const variant = habit.track_type === 'variants' ? (f.variant || null) : null
+        await setLog(habit.id, row.date, { variant, duration_min: null }).catch(() => {})
+      }
+      toast('Workout saved')
+      onSaved()
+    } catch { toast('Couldn’t save that workout. Has the latest migration been run?', 'error') }
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} title={session?.id ? 'Edit workout' : 'Log other workout'} width={520}>
+      <form onSubmit={save} className="flex flex-col gap-3">
+        <div className="grid grid-cols-[1fr_150px] gap-2">
+          <label><span className="label">Title</span><input value={f.title || ''} onChange={e => set('title', e.target.value)} placeholder="Mobility + bodyweight legs & core" className="input" /></label>
+          <label><span className="label">Date</span><input type="date" value={f.date || ''} max={today()} onChange={e => set('date', e.target.value)} className="input" /></label>
+        </div>
+        <label>
+          <span className="label">Exercises, one per line</span>
+          <textarea value={f.lines || ''} onChange={e => set('lines', e.target.value)} rows={8} className="input font-mono text-[13px] leading-relaxed"
+            placeholder={'Bicycle — 10 min\nSumo squats — 2 × 15\nWalking lunges — 2 × 15\nCat-cow\nCrunches — 2 × 15'} />
+          <span className="text-[12px] text-faint">Put sets, reps or time after a dash: “Sumo squats — 2 × 15”.</span>
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <label><span className="label">Cardio minutes</span><input type="number" inputMode="decimal" min="0" value={f.cardio_min || ''} onChange={e => set('cardio_min', e.target.value)} className="input tnum" placeholder="optional" /></label>
+          <label><span className="label">Cardio type</span>
+            <select value={f.cardio_kind || 'walk'} onChange={e => set('cardio_kind', e.target.value)} className="input">
+              <option value="walk">Walk</option><option value="run">Run</option><option value="cycle">Cycle</option><option value="other">Other</option>
+            </select>
+          </label>
+        </div>
+        <label><span className="label">Notes</span><input value={f.notes || ''} onChange={e => set('notes', e.target.value)} className="input" placeholder="How it felt, anything to remember" /></label>
+        {habit && (
+          <div className="flex flex-wrap items-center gap-3 text-[13.5px]">
+            <label className="flex items-center gap-2"><input type="checkbox" checked={!!f.tick} onChange={e => set('tick', e.target.checked)} /> Tick “{habit.name}”</label>
+            {f.tick && habit.track_type === 'variants' && (
+              <select value={f.variant || ''} onChange={e => set('variant', e.target.value)} className="input py-1 w-auto text-[13px]" aria-label="Habit variant">
+                <option value="">No type</option>
+                {(habit.variants || []).map(v => <option key={v} value={v}>{v}</option>)}
+              </select>
+            )}
+          </div>
+        )}
+        <div className="flex justify-end gap-2 mt-1"><button type="button" onClick={onClose} className="btn btn-quiet">Cancel</button><button className="btn btn-primary">Save workout</button></div>
+      </form>
+    </Dialog>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════
+//  Body: measurements over time
+// ════════════════════════════════════════════════════════════════
+function Body() {
+  const toast = useToast()
+  const confirm = useConfirm()
+  const [rows, setRows] = useState(null)
+  const [weights, setWeights] = useState([])
+  const [every, setEvery] = useState('monthly')
+  const [metric, setMetric] = useState('weight')
+  const [editing, setEditing] = useState(null) // row, or {} for a new one
+  const [reload, setReload] = useState(0)
+
+  useEffect(() => {
+    Promise.all([
+      sb.from('body_measurements').select('*').order('date', { ascending: true }),
+      sb.from('body_weights').select('date,kg').order('date', { ascending: true }),
+      sb.from('fitness_settings').select('*').maybeSingle(),
+    ]).then(([m, w, s]) => {
+      if (m.error) toast('Couldn’t load measurements. Run the 20261123_body_measurements migration first.', 'error')
+      setRows(m.data || []); setWeights(w.data || [])
+      if (s.data?.measure_every) setEvery(s.data.measure_every)
+    })
+  }, [reload])
+
+  const series = useMemo(() => {
+    const out = {}
+    for (const m of BODY_METRICS) {
+      const pts = (rows || []).filter(r => r.vals?.[m.id] != null && r.vals[m.id] !== '').map(r => ({ date: r.date, v: Number(r.vals[m.id]), src: 'sheet' }))
+      if (m.id === 'weight') for (const w of weights) if (!pts.some(p => p.date === w.date)) pts.push({ date: w.date, v: Number(w.kg), src: 'scale' })
+      out[m.id] = pts.sort((a, b) => a.date.localeCompare(b.date))
+    }
+    return out
+  }, [rows, weights])
+
+  async function saveEvery(v) {
+    setEvery(v)
+    try { await dbRun('Save cadence', () => sb.from('fitness_settings').upsert({ measure_every: v, updated_at: nowIso() }, { onConflict: 'user_id' })) }
+    catch { toast('Couldn’t save that. Has the latest migration been run?', 'error') }
+  }
+
+  async function save(row, vals, date, notes) {
+    const clash = (rows || []).find(r => r.date === date && r.id !== row?.id)
+    if (clash) { toast(`There’s already an entry for ${fmtDay(date)}. Edit that one instead.`, 'error'); return false }
+    const rec = { id: row?.id || uid(), date, vals, notes: (notes || '').slice(0, 1000), updated_at: nowIso() }
+    try {
+      await dbRun('Save measurements', () => sb.from('body_measurements').upsert(rec))
+      if (vals.weight) {
+        const existing = weights.find(w => w.date === date)
+        await sb.from('body_weights').upsert({ id: existing?.id || uid(), date, kg: vals.weight }, { onConflict: 'user_id,date' })
+        const latest = [...weights.map(w => w.date), date].sort().pop()
+        if (latest === date) syncWeightGoal(vals.weight)
+      }
+      toast('Measurements saved')
+      setEditing(null); setReload(r => r + 1)
+      return true
+    } catch { toast('Couldn’t save. Has the latest migration been run?', 'error'); return false }
+  }
+  async function remove(row) {
+    if (!(await confirm({ title: 'Delete these measurements?', body: `All numbers from ${fmtDay(row.date, { day: 'numeric', month: 'long', year: 'numeric' })} will be removed. Your daily weight log stays.`, confirmLabel: 'Delete' }))) return
+    try { await dbRun('Delete measurements', () => sb.from('body_measurements').delete().eq('id', row.id)); setEditing(null); setReload(r => r + 1) }
+    catch { toast('Couldn’t delete that.', 'error') }
+  }
+
+  if (!rows) return <PageLoader />
+  const last = rows[rows.length - 1]
+  const nextDue = last ? addDays(last.date, MEASURE_EVERY[every]) : null
+  const overdue = nextDue && nextDue <= today()
+  const available = BODY_METRICS.filter(m => series[m.id].length)
+  const cur = METRIC[metric] && series[metric].length ? metric : available[0]?.id
+
+  return (
+    <div className="flex flex-col gap-5">
+      <section className="panel p-5">
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="mr-auto">
+            <h3 className="h-section flex items-center gap-2"><Ruler size={16} style={{ color: HUE }} /> Body stats</h3>
+            <p className="text-[13px] text-muted mt-1">
+              {last ? <>Last measured {relDay(last.date).toLowerCase() === 'today' ? 'today' : fmtDay(last.date, { day: 'numeric', month: 'short', year: 'numeric' })} · {rows.length} {rows.length === 1 ? 'entry' : 'entries'}</> : 'No measurements yet.'}
+            </p>
+          </div>
+          <button onClick={() => setEditing({})} className="btn btn-primary btn-sm"><Plus size={14} /> Add measurements</button>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 mt-4">
+          <span className="text-[12.5px] text-muted">Measure every</span>
+          <Seg label="Measuring cadence" value={every} onChange={saveEvery} options={[{ value: 'weekly', label: 'Week' }, { value: 'fortnightly', label: '2 weeks' }, { value: 'monthly', label: 'Month' }]} />
+          {nextDue && (
+            <span className={`text-[12.5px] inline-flex items-center gap-1.5 ${overdue ? 'text-warn font-medium' : 'text-muted'}`}>
+              <Bell size={13} /> {overdue ? `Due now (since ${fmtDay(nextDue)})` : `Next on ${fmtDay(nextDue, { weekday: 'short', day: 'numeric', month: 'short' })}`}
+            </span>
+          )}
+        </div>
+      </section>
+
+      {rows.length === 0 && weights.length === 0 ? (
+        <section className="panel"><Empty compact icon={Ruler} title="Add your first measurements" body="Copy the numbers from your gym’s body-composition sheet. Measure again every few weeks to see what’s changing." action={<button onClick={() => setEditing({})} className="btn btn-primary"><Plus size={15} /> Add measurements</button>} /></section>
+      ) : <>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          {BODY_METRICS.filter(m => m.key && series[m.id].length).map(m => <MetricCard key={m.id} m={m} pts={series[m.id]} active={cur === m.id} onClick={() => setMetric(m.id)} />)}
+        </div>
+
+        {cur && (
+          <section className="panel p-5">
+            <div className="flex flex-wrap items-center gap-3 mb-3">
+              <h3 className="h-section mr-auto">{METRIC[cur].label} over time</h3>
+              <select value={cur} onChange={e => setMetric(e.target.value)} className="input py-1.5 w-auto text-[13.5px]" aria-label="Metric to chart">
+                {BODY_GROUPS.map(g => (
+                  <optgroup key={g.id} label={g.label}>
+                    {available.filter(m => m.group === g.id).map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+            <MetricChart m={METRIC[cur]} pts={series[cur]} />
+            {cur === 'weight' && weights.length > 0 && <p className="text-[12px] text-faint mt-2">Includes your daily weigh-ins from the Week tab. Filled dots are gym measurements.</p>}
+          </section>
+        )}
+
+        {rows.length > 0 && <MeasureTable rows={rows} onEdit={setEditing} />}
+      </>}
+
+      <MeasureDialog row={editing} last={last} onClose={() => setEditing(null)} onSave={save} onDelete={remove} />
+    </div>
+  )
+}
+
+function MetricCard({ m, pts, active, onClick }) {
+  const first = pts[0], latest = pts[pts.length - 1], prev = pts[pts.length - 2]
+  const total = latest.v - first.v, step = prev ? latest.v - prev.v : 0
+  const tone = changeTone(m, total)
+  return (
+    <button onClick={onClick} className="panel p-3.5 text-left" style={active ? { boxShadow: `inset 0 0 0 1.5px ${HUE}` } : undefined} aria-pressed={active}>
+      <p className="text-[12px] text-muted">{m.short}</p>
+      <p className="text-[22px] font-semibold tnum leading-tight">{fmtMetric(latest.v, m)}{m.unit && m.unit !== '%' && <span className="text-[12.5px] text-muted font-normal"> {m.unit}</span>}</p>
+      {pts.length > 1 ? (
+        <p className="text-[12px] tnum mt-0.5" style={{ color: TONE_COLOR[tone] }}>
+          {signed(total)} since {fmtDay(first.date)}{prev && prev !== first ? <span className="text-faint"> · {signed(step)} last time</span> : null}
+        </p>
+      ) : <p className="text-[12px] text-faint mt-0.5">First reading {fmtDay(first.date)}</p>}
+    </button>
+  )
+}
+
+function MetricChart({ m, pts }) {
+  const ref = useRef(null)
+  const W = useWidth(ref)
+  const [hover, setHover] = useState(null)
+  const H = 200, padL = 42, padR = 16, padT = 22, padB = 26
+  const vals = pts.map(p => p.v)
+  let lo = Math.min(...vals), hi = Math.max(...vals)
+  const span = Math.max(hi - lo, Math.abs(hi) * 0.02, 0.5)
+  lo -= span * 0.25; hi += span * 0.25
+  const t0 = parseYmd(pts[0].date).getTime(), t1 = parseYmd(pts[pts.length - 1].date).getTime()
+  const x = p => pts.length === 1 || t1 === t0 ? (padL + W - padR) / 2 : padL + ((parseYmd(p.date).getTime() - t0) / (t1 - t0)) * (W - padL - padR)
+  const y = v => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB)
+  const ticks = [lo + (hi - lo) * 0.15, (lo + hi) / 2, hi - (hi - lo) * 0.15]
+  const labelAll = pts.filter(p => p.src === 'sheet').length <= 10
+  const first = pts[0], latest = pts[pts.length - 1]
+  const tone = changeTone(m, latest.v - first.v)
+  const h = hover != null ? pts[hover] : null
+  function onMove(e) {
+    const r = ref.current.getBoundingClientRect(), mx = e.clientX - r.left
+    let best = 0
+    pts.forEach((p, i) => { if (Math.abs(x(p) - mx) < Math.abs(x(pts[best]) - mx)) best = i })
+    setHover(best)
+  }
+  return (
+    <div ref={ref} className="relative w-full" onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+      {pts.length > 1 && (
+        <p className="text-[13px] mb-1">
+          <span className="tnum font-semibold" style={{ color: TONE_COLOR[tone] }}>{signed(latest.v - first.v)}{m.unit === '%' ? ' pts' : m.unit ? ` ${m.unit}` : ''}</span>
+          <span className="text-muted"> from {fmtMetric(first.v, m)} on {fmtDay(first.date)} to {fmtMetric(latest.v, m)} on {fmtDay(latest.date)}</span>
+          {m.better && <span className="text-faint"> · {m.better === 'down' ? 'lower' : 'higher'} is better</span>}
+        </p>
+      )}
+      <svg width={W} height={H} role="img" aria-label={`${m.label}: ${pts.map(p => `${fmtDay(p.date)} ${p.v}`).join(', ')}`} className="block">
+        {ticks.map(t => <g key={t}>
+          <line x1={padL} x2={W - padR} y1={y(t)} y2={y(t)} stroke="var(--c-line-soft)" strokeWidth="1" />
+          <text x={padL - 6} y={y(t)} textAnchor="end" dominantBaseline="middle" className="fill-[var(--c-faint)] text-[10.5px] tnum">{t.toFixed(span < 5 ? 1 : 0)}</text>
+        </g>)}
+        {pts.length > 1 && <polyline points={pts.map(p => `${x(p)},${y(p.v)}`).join(' ')} fill="none" stroke={HUE} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />}
+        {pts.map((p, i) => (
+          <g key={p.date}>
+            <circle cx={x(p)} cy={y(p.v)} r={hover === i ? 5.5 : p.src === 'sheet' ? 4.5 : 3} fill={p.src === 'sheet' ? HUE : 'var(--c-surface)'} stroke={HUE} strokeWidth="2" />
+            {p.src === 'sheet' && labelAll && <text x={x(p)} y={y(p.v) - 10} textAnchor="middle" className="fill-[var(--c-ink)] text-[11px] font-semibold tnum">{fmtMetric(p.v, m)}</text>}
+          </g>
+        ))}
+        <text x={padL} y={H - 6} className="fill-[var(--c-faint)] text-[10.5px]">{fmtDay(first.date, { day: 'numeric', month: 'short', year: '2-digit' })}</text>
+        {pts.length > 1 && <text x={W - padR} y={H - 6} textAnchor="end" className="fill-[var(--c-faint)] text-[10.5px]">{fmtDay(latest.date, { day: 'numeric', month: 'short', year: '2-digit' })}</text>}
+      </svg>
+      {h && (
+        <div className="absolute pointer-events-none rounded-[8px] px-2.5 py-1.5 text-[12px] shadow-pop bg-surface whitespace-nowrap"
+          style={{ left: Math.min(Math.max(0, x(h) - 70), W - 150), top: Math.max(0, y(h.v) - 54) }}>
+          <b>{fmtDay(h.date, { day: 'numeric', month: 'short', year: 'numeric' })}</b> · <span className="tnum">{fmtMetric(h.v, m)} {m.unit !== '%' ? m.unit : ''}</span>
+          <span className="text-faint"> · {h.src === 'sheet' ? 'measurement' : 'daily weigh-in'}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Like the gym's paper sheet: metrics down the side, one column per date
+function MeasureTable({ rows, onEdit }) {
+  const cols = rows.slice(-8)
+  const first = rows[0], latest = rows[rows.length - 1]
+  return (
+    <section className="panel p-1.5">
+      <div className="flex items-baseline gap-2 px-3.5 pt-3 pb-2">
+        <h3 className="h-section mr-auto">All measurements</h3>
+        <span className="text-[12px] text-faint">Tap a date to edit{rows.length > cols.length ? ` · showing the last ${cols.length}` : ''}</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[13px] tnum border-collapse">
+          <thead>
+            <tr>
+              <th className="text-left font-medium text-muted px-3.5 py-2 sticky left-0 bg-surface min-w-[150px]">Metric</th>
+              {cols.map(r => (
+                <th key={r.id} className="px-2 py-1 text-right font-medium">
+                  <button onClick={() => onEdit(r)} className="btn btn-quiet btn-sm whitespace-nowrap">{fmtDay(r.date, { day: 'numeric', month: 'short', year: '2-digit' })}</button>
+                </th>
+              ))}
+              {rows.length > 1 && <th className="px-3.5 py-2 text-right font-medium text-muted whitespace-nowrap">Change</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {BODY_GROUPS.map(g => {
+              const ms = BODY_METRICS.filter(m => m.group === g.id && rows.some(r => r.vals?.[m.id] != null))
+              if (!ms.length) return null
+              return (
+                <React.Fragment key={g.id}>
+                  <tr><td colSpan={cols.length + 2} className="px-3.5 pt-3 pb-1 text-[11.5px] uppercase tracking-wide text-faint font-semibold sticky left-0 bg-surface">{g.label}</td></tr>
+                  {ms.map(m => {
+                    const a = first.vals?.[m.id], b = latest.vals?.[m.id]
+                    const delta = a != null && b != null ? Number(b) - Number(a) : null
+                    return (
+                      <tr key={m.id} className="border-t border-line-soft">
+                        <td className="px-3.5 py-1.5 sticky left-0 bg-surface">{m.label}{m.unit && <span className="text-faint"> {m.unit}</span>}</td>
+                        {cols.map(r => <td key={r.id} className="px-3.5 py-1.5 text-right">{fmtMetric(r.vals?.[m.id], m)}</td>)}
+                        {rows.length > 1 && <td className="px-3.5 py-1.5 text-right font-medium" style={{ color: delta == null ? undefined : TONE_COLOR[changeTone(m, delta)] }}>{delta == null ? '–' : signed(delta)}</td>}
+                      </tr>
+                    )
+                  })}
+                </React.Fragment>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+function MeasureDialog({ row, last, onClose, onSave, onDelete }) {
+  const open = !!row
+  const editing = !!row?.id
+  const [date, setDate] = useState(today())
+  const [vals, setVals] = useState({})
+  const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    setDate(row.date || today())
+    setVals(Object.fromEntries(Object.entries(row.vals || {}).map(([k, v]) => [k, String(v)])))
+    setNotes(row.notes || '')
+  }, [open])
+  const ref = editing ? null : last // show last time's numbers as hints on a new entry
+
+  async function submit(e) {
+    e.preventDefault()
+    const clean = {}
+    for (const m of BODY_METRICS) {
+      const raw = String(vals[m.id] ?? '').replace(',', '.').trim()
+      if (raw === '') continue
+      const n = Number(raw)
+      if (!Number.isFinite(n) || n < 0 || n > 1000) return alertBad(m)
+      clean[m.id] = Math.round(n * 100) / 100
+    }
+    if (!Object.keys(clean).length) return
+    setBusy(true)
+    await onSave(editing ? row : null, clean, date, notes)
+    setBusy(false)
+  }
+  function alertBad(m) { document.getElementById(`m-${m.id}`)?.focus() }
+
+  return (
+    <Dialog open={open} onClose={onClose} title={editing ? `Measurements · ${fmtDay(row.date, { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Add measurements'} width={620}>
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <label><span className="label">Date measured</span><input type="date" value={date} max={today()} onChange={e => setDate(e.target.value)} className="input w-auto" /></label>
+          <p className="text-[12.5px] text-faint pb-2">Fill in what you have. Blank boxes are skipped.{ref ? ' Grey numbers are from last time.' : ''}</p>
+        </div>
+        {BODY_GROUPS.map(g => (
+          <fieldset key={g.id}>
+            <legend className="text-[13px] font-semibold">{g.label} <span className="text-faint font-normal">· {g.note}</span></legend>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
+              {BODY_METRICS.filter(m => m.group === g.id).map(m => (
+                <label key={m.id}>
+                  <span className="block text-[12px] text-muted mb-1">{m.label}{m.unit && <span className="text-faint"> ({m.unit})</span>}</span>
+                  <input id={`m-${m.id}`} type="number" inputMode="decimal" step="any" min="0" value={vals[m.id] ?? ''}
+                    onChange={e => setVals(v => ({ ...v, [m.id]: e.target.value }))}
+                    placeholder={ref?.vals?.[m.id] != null ? String(ref.vals[m.id]) : ''} className="input tnum py-1.5" />
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        ))}
+        <label><span className="label">Notes</span><input value={notes} onChange={e => setNotes(e.target.value)} className="input" placeholder="e.g. measured at Heal Fitness, morning, before food" /></label>
+        <div className="flex items-center gap-2">
+          {editing && <button type="button" onClick={() => onDelete(row)} className="btn btn-quiet text-danger mr-auto"><Trash2 size={15} /> Delete</button>}
+          <button type="button" onClick={onClose} className="btn btn-quiet ml-auto">Cancel</button>
+          <button disabled={busy} className="btn btn-primary">{busy ? 'Saving…' : 'Save'}</button>
+        </div>
+      </form>
+    </Dialog>
+  )
 }

@@ -1,7 +1,7 @@
 // Tools exposed to Claude through the MCP endpoint (api/mcp.js).
 // Every query runs with the service role, so every query MUST be scoped to ctx.userId.
 import crypto from 'node:crypto'
-import { EXERCISES, DAYS, CYCLE, nextDay } from '../../src/lib/fitness.js'
+import { EXERCISES, DAYS, CYCLE, nextDay, CUSTOM, sessionLabel, BODY_METRICS, METRIC } from '../../src/lib/fitness.js'
 
 export class ToolError extends Error {}
 
@@ -18,7 +18,7 @@ const METRICS = ['none', 'minutes', 'reading', 'writing', 'workout', 'screentime
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 // Children before parents. Keeps the account, profile and Claude keys.
-const RESET_ORDER = ['workout_sets', 'workout_sessions', 'food_logs', 'body_weights', 'fitness_settings', 'habit_logs', 'goal_milestones', 'reading_sessions', 'notes', 'note_folders', 'books', 'authors', 'series',
+const RESET_ORDER = ['workout_sets', 'workout_sessions', 'food_logs', 'body_weights', 'body_measurements', 'fitness_settings', 'habit_logs', 'goal_milestones', 'reading_sessions', 'notes', 'note_folders', 'books', 'authors', 'series',
   'reading_goals', 'tasks', 'habits', 'goals', 'journal_entries', 'pomodoro_sessions', 'writing_logs', 'custom_data']
 
 const BOOK_STATUS = ['unread', 'reading', 'completed', 'paused']
@@ -611,26 +611,41 @@ export const TOOLS = [
   // ── Fitness ──
   {
     name: 'get_fitness', title: 'Fitness log', annotations: RO,
-    description: 'Workouts (day type, every set with weight and reps, cardio minutes/km, completion, personal bests), daily food totals vs targets, and body-weight entries for a date range (default: last 7 days). Also returns the next workout in the Push A / Pull A / Legs A / Push B / Pull B / Legs B / Rest cycle. Use this to review training and suggest what to push.',
+    description: 'Workouts (program days with every set, plus free-form workouts with their activity list), daily food totals vs targets with each food entry, body-weight entries and body measurements (body fat, waist, etc.) for a date range (default: last 7 days). Also returns the next workout in the Push A / Pull A / Legs A / Push B / Pull B / Legs B / Rest cycle. Use this to review training and suggest what to push.',
     inputSchema: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } } },
     run: async (ctx, a) => {
       const to = date(a.to, 'to') || ctx.today, from = date(a.from, 'from') || addDays(to, -6)
       const sb = ctx.sb, u = ctx.userId
-      const [sessions, recent, food, weights, settings] = await Promise.all([
+      const [sessions, recent, food, weights, settings, measures] = await Promise.all([
         q(sb.from('workout_sessions').select('*').eq('user_id', u).gte('date', from).lte('date', to).order('date', { ascending: true })),
         q(sb.from('workout_sessions').select('date,day_type,finished_at').eq('user_id', u).gte('date', addDays(ctx.today, -60))),
         q(sb.from('food_logs').select('date,meal,name,qty,kcal,protein').eq('user_id', u).gte('date', from).lte('date', to)),
         q(sb.from('body_weights').select('date,kg').eq('user_id', u).gte('date', addDays(from, -30)).lte('date', to).order('date', { ascending: true })),
-        q(sb.from('fitness_settings').select('kcal_target,protein_target').eq('user_id', u).maybeSingle()),
+        q(sb.from('fitness_settings').select('*').eq('user_id', u).maybeSingle()),
+        sb.from('body_measurements').select('date,vals,notes').eq('user_id', u).lte('date', to).order('date', { ascending: true })
+          .then(r => r.error ? [] : r.data || []),   // empty until the 20261123 migration runs
       ])
       const sets = sessions.length ? await q(sb.from('workout_sets').select('session_id,exercise_id,set_no,weight,reps,done').eq('user_id', u).in('session_id', sessions.map(s => s.id))) : []
-      const targets = settings || { kcal_target: 2000, protein_target: 140 }
+      const targets = { kcal_target: settings?.kcal_target ?? 2000, protein_target: settings?.protein_target ?? 140 }
       const byDay = {}
-      for (const f of food) { const d = (byDay[f.date] ||= { date: f.date, kcal: 0, protein: 0, items: 0 }); d.kcal += f.kcal || 0; d.protein += Number(f.protein) || 0; d.items++ }
+      for (const f of food) {
+        const d = (byDay[f.date] ||= { date: f.date, kcal: 0, protein: 0, items: 0, entries: [] })
+        d.kcal += f.kcal || 0; d.protein += Number(f.protein) || 0; d.items++
+        d.entries.push(clean({ meal: f.meal, name: f.name, qty: f.qty || undefined, kcal: f.kcal, protein: Number(f.protein) }))
+      }
+      const inRange = measures.filter(m => m.date >= from)
+      const before = measures.filter(m => m.date < from).pop()
+      const measureOut = m => clean({ date: m.date, notes: m.notes || undefined,
+        values: Object.fromEntries(Object.entries(m.vals || {}).map(([k, v]) => [METRIC[k] ? `${k} (${METRIC[k].unit || 'value'})` : k, Number(v)])) })
       return {
         from, to, today: ctx.today, next_workout: DAYS[nextDay(recent)]?.label,
         cycle: CYCLE.map(c => DAYS[c].label),
-        workouts: sessions.map(s => clean({
+        workouts: sessions.map(s => s.day_type === CUSTOM ? clean({
+          id: s.id, date: s.date, day: sessionLabel(s), kind: 'free-form',
+          activities: (s.activities || []).map(a => clean({ name: a.name, detail: a.detail || undefined, group: a.group || undefined })),
+          cardio: s.cardio_min ? `${Number(s.cardio_min)} min${s.cardio_km ? `, ${Number(s.cardio_km)} km` : ''} (${s.cardio_kind || 'cardio'})` : undefined,
+          notes: s.notes || undefined,
+        }) : clean({
           date: s.date, day: DAYS[s.day_type]?.label || s.day_type, finished: !!s.finished_at,
           sets_done: s.stats?.done, sets_planned: s.stats?.planned, volume_kg: s.stats?.volume,
           personal_bests: s.stats?.prs?.length ? s.stats.prs : undefined,
@@ -644,7 +659,104 @@ export const TOOLS = [
         })),
         food: { targets, days: Object.values(byDay).sort((x, y) => x.date.localeCompare(y.date)).map(d => ({ ...d, protein: Math.round(d.protein) })) },
         body_weight: weights.map(w => ({ date: w.date, kg: Number(w.kg) })),
+        body_measurements: {
+          measure_every: settings?.measure_every || 'monthly',
+          previous: before ? measureOut(before) : undefined,
+          entries: inRange.map(measureOut),
+        },
       }
+    },
+  },
+  {
+    name: 'log_workout', title: 'Log free-form workout', annotations: WRITE,
+    description: 'Log a workout that is not one of the program days (mobility, bodyweight, home workout, a class, a walk). It shows in Fitness → History with its activity list. Pass id to replace an earlier free-form workout. Does not move the Push/Pull/Legs cycle.',
+    inputSchema: { type: 'object', required: ['title'], properties: {
+      id: { type: 'string', description: 'Id of a free-form workout to replace (from get_fitness).' },
+      date: { type: 'string', description: 'YYYY-MM-DD, default today.' },
+      title: { type: 'string', description: 'e.g. "Mobility + bodyweight legs & core".' },
+      activities: { type: 'array', maxItems: 60, items: { type: 'object', required: ['name'], properties: {
+        name: { type: 'string', description: 'Exercise, e.g. "Sumo squats".' },
+        detail: { type: 'string', description: 'Sets, reps, time or load, e.g. "2 × 15, bodyweight".' },
+        group: { type: 'string', description: 'Optional section, e.g. Warm-up, Mobility, Legs, Core, Cool-down.' },
+      } } },
+      cardio_min: { type: 'number' }, cardio_km: { type: 'number' },
+      cardio_kind: { type: 'string', enum: ['walk', 'run', 'cycle', 'other'] },
+      notes: { type: 'string' },
+      habit_variant: { type: 'string', description: 'Also tick the gym habit with this variant (e.g. Legs). Omit to leave the habit alone.' },
+    } },
+    run: async (ctx, a) => {
+      const acts = a.activities === undefined || a.activities === null ? [] : a.activities
+      if (!Array.isArray(acts) || acts.length > 60) throw new ToolError('activities must be a list of up to 60 items.')
+      const activities = acts.map((x, i) => clean({
+        name: text(x?.name, `activities[${i}].name`, { max: 80, required: true }),
+        detail: text(x?.detail, `activities[${i}].detail`, { max: 80 }) || undefined,
+        group: text(x?.group, `activities[${i}].group`, { max: 40 }) || undefined,
+      }))
+      const num = (v, name, max) => {
+        if (v === undefined || v === null) return null
+        const n = Number(v)
+        if (!(n >= 0 && n <= max)) throw new ToolError(`${name} must be 0–${max}.`)
+        return Math.round(n * 100) / 100
+      }
+      const cardio_min = num(a.cardio_min, 'cardio_min', 600), cardio_km = num(a.cardio_km, 'cardio_km', 200)
+      if (!activities.length && !cardio_min) throw new ToolError('Add at least one activity or cardio_min.')
+      let existing = null
+      if (a.id) {
+        existing = await owned(ctx, 'workout_sessions', a.id, 'workout')
+        if (existing.day_type !== CUSTOM) throw new ToolError('Only free-form workouts can be replaced with log_workout.')
+      }
+      const day = date(a.date, 'date') || existing?.date || ctx.today
+      const row = {
+        id: existing?.id || uid(), user_id: ctx.userId, date: day, day_type: CUSTOM,
+        title: text(a.title, 'title', { max: 120, required: true }), activities,
+        started_at: existing?.started_at || nowIso(), finished_at: existing?.finished_at || nowIso(),
+        cardio_kind: cardio_min ? (pick(a.cardio_kind, 'cardio_kind', ['walk', 'run', 'cycle', 'other']) || 'walk') : null,
+        cardio_min, cardio_km, notes: text(a.notes, 'notes', { max: 2000 }) || '', stats: existing?.stats || {},
+      }
+      await q(ctx.sb.from('workout_sessions').upsert(row))
+      let habit
+      if (a.habit_variant) {
+        const variant = text(a.habit_variant, 'habit_variant', { max: 40 })
+        const habits = await q(ctx.sb.from('habits').select('*').eq('user_id', ctx.userId))
+        const h = habits.find(x => !x.archived && (x.metric === 'workout' || /gym/i.test(x.name)))
+        if (h) {
+          const v = h.track_type === 'variants' && (h.variants || []).includes(variant) ? variant : null
+          await q(ctx.sb.from('habit_logs').upsert({ habit_id: h.id, date: day, user_id: ctx.userId, variant: v, duration_min: null }, { onConflict: 'habit_id,date' }))
+          habit = { name: h.name, variant: v }
+        }
+      }
+      return clean({ saved: { id: row.id, date: row.date, title: row.title, activities: activities.length, cardio_min: cardio_min || undefined }, habit })
+    },
+  },
+  {
+    name: 'log_body_measurement', title: 'Log body measurements', annotations: WRITE,
+    description: `Record body measurements for a day (body-composition scale and tape). Values merge into that day's entry; pass null to clear one. Weight also goes into the daily weight log. Metric ids: ${BODY_METRICS.map(m => `${m.id} (${m.unit || 'value'})`).join(', ')}.`,
+    inputSchema: { type: 'object', required: ['values'], properties: {
+      date: { type: 'string', description: 'YYYY-MM-DD the measurements were taken, default today.' },
+      values: { type: 'object', description: 'Metric id → number, e.g. {"weight":73.7,"body_fat":27.6,"waist":34}.',
+        properties: Object.fromEntries(BODY_METRICS.map(m => [m.id, { type: ['number', 'null'], description: `${m.label}${m.unit ? ` (${m.unit})` : ''}` }])) },
+      notes: { type: 'string' },
+    } },
+    run: async (ctx, a) => {
+      const day = date(a.date, 'date') || ctx.today
+      if (!a.values || typeof a.values !== 'object' || Array.isArray(a.values)) throw new ToolError('values must be an object of metric id → number.')
+      const existing = await q(ctx.sb.from('body_measurements').select('*').eq('user_id', ctx.userId).eq('date', day).maybeSingle())
+      const vals = { ...(existing?.vals || {}) }
+      for (const [k, v] of Object.entries(a.values)) {
+        if (!METRIC[k]) throw new ToolError(`Unknown metric "${k}". Use one of: ${BODY_METRICS.map(m => m.id).join(', ')}.`)
+        if (v === null) { delete vals[k]; continue }
+        const n = Number(v)
+        if (!Number.isFinite(n) || n < 0 || n > 1000) throw new ToolError(`${k} must be a number from 0 to 1000.`)
+        vals[k] = Math.round(n * 100) / 100
+      }
+      const row = { id: existing?.id || uid(), user_id: ctx.userId, date: day, vals,
+        notes: a.notes === undefined ? (existing?.notes || '') : (text(a.notes, 'notes', { max: 1000 }) || ''), updated_at: nowIso() }
+      await q(ctx.sb.from('body_measurements').upsert(row, { onConflict: 'user_id,date' }))
+      if (vals.weight && a.values.weight != null) {
+        const w = await q(ctx.sb.from('body_weights').select('id').eq('user_id', ctx.userId).eq('date', day).maybeSingle())
+        await q(ctx.sb.from('body_weights').upsert({ id: w?.id || uid(), user_id: ctx.userId, date: day, kg: Math.round(vals.weight * 10) / 10 }, { onConflict: 'user_id,date' }))
+      }
+      return { date: day, values: vals, metrics_saved: Object.keys(vals).length }
     },
   },
   {

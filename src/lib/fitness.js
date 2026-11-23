@@ -96,9 +96,14 @@ export const CYCLE = ['push_a', 'pull_a', 'legs_a', 'push_b', 'pull_b', 'legs_b'
 export const warmupFor = d => WARMUP[DAYS[d].group]
 export const cooldownFor = d => COOLDOWN[DAYS[d].group]
 
-// The day after the most recent finished session (missed days don't skip anything)
+// Free-form sessions (mobility, bodyweight, a class…) logged outside the program
+export const CUSTOM = 'custom'
+export const isCustom = s => s?.day_type === CUSTOM
+export const sessionLabel = s => isCustom(s) ? (s.title || 'Other workout') : (DAYS[s?.day_type]?.label || s?.day_type || '')
+
+// The day after the most recent finished program session (missed days and free-form sessions don't skip anything)
 export function nextDay(sessions) {
-  const last = [...sessions].filter(s => s.finished_at).sort((a, b) => (b.date + b.finished_at).localeCompare(a.date + a.finished_at))[0]
+  const last = [...sessions].filter(s => s.finished_at && CYCLE.includes(s.day_type)).sort((a, b) => (b.date + b.finished_at).localeCompare(a.date + a.finished_at))[0]
   if (!last || !CYCLE.includes(last.day_type)) return CYCLE[0]
   return CYCLE[(CYCLE.indexOf(last.day_type) + 1) % CYCLE.length]
 }
@@ -234,3 +239,63 @@ export const FOOD_PRESETS = [
   { name: 'Tea with milk & sugar', qty: '1 cup', kcal: 70, protein: 2 },
 ]
 export const DEFAULT_TARGETS = { kcal_target: 2000, protein_target: 140 }
+
+// ── Body measurements ──────────────────────────────────────────
+// better: which direction counts as progress ('down', 'up' or null when neither).
+// key metrics show as cards at the top of the Body tab.
+const M = (id, label, unit, group, better, key = false, short) => ({ id, label, unit, group, better, key, short: short || label })
+export const BODY_GROUPS = [
+  { id: 'composition', label: 'Body composition', note: 'From the gym’s body-composition scale' },
+  { id: 'segments', label: 'Fat and muscle by area', note: 'Percentages from the same scale' },
+  { id: 'tape', label: 'Tape measurements', note: 'Inches, measured with a tape' },
+]
+export const BODY_METRICS = [
+  M('weight', 'Weight', 'kg', 'composition', 'down', true),
+  M('body_fat', 'Body fat', '%', 'composition', 'down', true),
+  M('visceral_fat', 'Visceral fat', 'level', 'composition', 'down', true),
+  M('muscle', 'Whole-body muscle (WBM)', '%', 'composition', 'up', true, 'Muscle'),
+  M('bmi', 'BMI', '', 'composition', 'down'),
+  M('resting_metabolism', 'Resting metabolism', 'kcal', 'composition', 'up', false, 'Resting kcal'),
+  M('body_age', 'Body age', 'yrs', 'composition', 'down'),
+  M('subcut_fat', 'Whole-body fat (WBF)', '%', 'segments', 'down', false, 'WBF'),
+  M('trunk_fat', 'Trunk fat', '%', 'segments', 'down'),
+  M('arms_fat', 'Arms fat', '%', 'segments', 'down'),
+  M('legs_fat', 'Legs fat', '%', 'segments', 'down'),
+  M('trunk_muscle', 'Trunk muscle', '%', 'segments', 'up'),
+  M('arms_muscle', 'Arms muscle', '%', 'segments', 'up'),
+  M('legs_muscle', 'Legs muscle', '%', 'segments', 'up'),
+  M('waist', 'Waist', 'in', 'tape', 'down', true),
+  M('abdomen_upper', 'Abdomen (upper)', 'in', 'tape', 'down'),
+  M('abdomen_lower', 'Abdomen (lower)', 'in', 'tape', 'down'),
+  M('hip', 'Hip', 'in', 'tape', 'down'),
+  M('chest_exhaled', 'Chest (exhaled)', 'in', 'tape', null),
+  M('chest_inhaled', 'Chest (inhaled)', 'in', 'tape', null),
+  M('shoulder', 'Shoulder', 'in', 'tape', 'up'),
+  M('neck', 'Neck', 'in', 'tape', null),
+  M('arm_relaxed', 'Arm (relaxed)', 'in', 'tape', 'up'),
+  M('arm_flexed', 'Arm (flexed)', 'in', 'tape', 'up'),
+  M('forearm', 'Forearm', 'in', 'tape', 'up'),
+  M('wrist', 'Wrist', 'in', 'tape', null),
+  M('thigh', 'Thigh', 'in', 'tape', null),
+  M('calf', 'Calf', 'in', 'tape', null),
+  M('ankle', 'Ankle', 'in', 'tape', null),
+  M('height', 'Height', 'cm', 'tape', null),
+]
+export const METRIC = Object.fromEntries(BODY_METRICS.map(m => [m.id, m]))
+export const MEASURE_EVERY = { weekly: 7, fortnightly: 14, monthly: 30 }
+
+// 'good' | 'bad' | 'flat' for a change in a metric
+export function changeTone(metric, delta) {
+  if (!delta || Math.abs(delta) < 0.05) return 'flat'
+  if (!metric?.better) return 'flat'
+  return (metric.better === 'down') === (delta < 0) ? 'good' : 'bad'
+}
+export const fmtMetric = (v, m) => v == null || v === '' ? '–' : `${Number(v).toLocaleString('en-GB', { maximumFractionDigits: 1 })}${m?.unit === '%' ? '%' : ''}`
+
+// "Sumo squats — 2 × 15" / "Sumo squats: 2×15" / "Cat cow" → { name, detail }
+export function parseActivity(line) {
+  const t = String(line || '').replace(/^[\s*•\-–]+/, '').trim()
+  if (!t) return null
+  const m = t.match(/^(.+?)\s*(?:—|–|:|\s-\s|->|=>)\s*(.+)$/)
+  return m ? { name: m[1].trim().slice(0, 80), detail: m[2].trim().slice(0, 80) } : { name: t.slice(0, 80), detail: '' }
+}

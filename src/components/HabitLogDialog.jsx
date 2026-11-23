@@ -44,7 +44,7 @@ export default function HabitLogDialog() {
         const first = list[0]
         setForm({ bookId: first?.id || '', start: first ? String(first.pages_read || 0) : '', end: '', minutes: guessMinutes(h.name) })
       } else if (metric === 'workout') {
-        const { data: s } = await sb.from('workout_sessions').select('*').eq('date', d).maybeSingle()
+        const { data: s } = await sb.from('workout_sessions').select('*').eq('date', d).neq('day_type', 'custom').maybeSingle()
         c.session = s
       } else if (metric === 'minutes' || metric === 'screentime') {
         setForm({ minutes: log?.duration_min ? String(log.duration_min) : metric === 'minutes' ? guessMinutes(h.name) : '', note: log?.note || '' })

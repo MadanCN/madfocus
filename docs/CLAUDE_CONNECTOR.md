@@ -33,6 +33,10 @@ tasks, habits, goals, writing log and journal.
 | `log_writing` | Chapters and words for a day |
 | `list_goals`, `create_goal`, `update_goal`, `delete_goal`, `add_milestone`, `update_milestone`, `delete_milestone` | Goals and milestones |
 | `get_journal` | Journal entries for a date range |
+| `get_fitness` | Workouts (program and free-form), food per day with every entry, weight log and body measurements |
+| `log_food`, `log_body_weight`, `set_nutrition_targets` | Food log, daily weight, calorie and protein targets |
+| `log_workout` | A free-form workout (mobility, bodyweight, a class) with its activity list. Needs migration `20261123_body_measurements.sql` |
+| `log_body_measurement` | Body-composition and tape measurements for a day. Needs migration `20261123_body_measurements.sql` |
 | `reset_account_data` | Wipes all data but keeps the account. Requires `confirm: "DELETE EVERYTHING"` |
 
 ## Testing locally
