@@ -678,6 +678,7 @@ export const TOOLS = [
         name: { type: 'string', description: 'Exercise, e.g. "Sumo squats".' },
         detail: { type: 'string', description: 'Sets, reps, time or load, e.g. "2 × 15, bodyweight".' },
         group: { type: 'string', description: 'Optional section, e.g. Warm-up, Mobility, Legs, Core, Cool-down.' },
+        image_id: { type: 'string', description: 'Optional picture from the exercise library (id like "dumbbell_bench_press", from /exercises/library.json). Omit it and the app picks a picture by matching the name.' },
       } } },
       cardio_min: { type: 'number' }, cardio_km: { type: 'number' },
       cardio_kind: { type: 'string', enum: ['walk', 'run', 'cycle', 'other'] },
@@ -691,6 +692,11 @@ export const TOOLS = [
         name: text(x?.name, `activities[${i}].name`, { max: 80, required: true }),
         detail: text(x?.detail, `activities[${i}].detail`, { max: 80 }) || undefined,
         group: text(x?.group, `activities[${i}].group`, { max: 40 }) || undefined,
+        img: (() => {
+          const v = text(x?.image_id, `activities[${i}].image_id`, { max: 80 })
+          if (v && !/^[a-z0-9_]+$/.test(v)) throw new ToolError(`activities[${i}].image_id must be a library id like "dumbbell_bench_press".`)
+          return v || undefined
+        })(),
       }))
       const num = (v, name, max) => {
         if (v === undefined || v === null) return null

@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Dumbbell, ChevronLeft, ChevronRight, Plus, Trash2, Timer, Footprints, ArrowUp, ArrowDown, Flame, Scale, Trophy, X, Pencil, Ruler, CalendarDays, Activity, Bell } from 'lucide-react'
+import { Dumbbell, ChevronLeft, ChevronRight, Plus, Trash2, Timer, Footprints, ArrowUp, ArrowDown, Flame, Scale, Trophy, X, Pencil, Ruler, CalendarDays, Activity, Bell, Search, Image as ImageIcon } from 'lucide-react'
 import { Dialog, Empty, PageLoader, Seg, Check2, Ring, useToast, useConfirm } from '../components/ui'
 import { sb, dbRun } from '../lib/supabase'
 import { setLog } from '../lib/habits'
 import { syncHabitTask } from '../lib/habitTasks'
 import { uid, today, addDays, fmtDay, relDay, fmtNum, plural, nowIso, parseYmd } from '../lib/utils'
 import DEMOS from '../lib/exercise-demos.json'
+import { loadLibrary, matchExercise, searchLibrary } from '../lib/exerciseLibrary'
 import {
   EXERCISES, DAYS, CYCLE, warmupFor, cooldownFor, nextDay, suggest, setLabel, sessionStats, supportiveMessage,
   MEALS, FOOD_PRESETS, DEFAULT_TARGETS,
@@ -327,8 +328,8 @@ function ExerciseCard({ ex, history, current, onSave }) {
 }
 
 // Two-frame demo (start and end position), alternating like a slow animation. Tap for a large view and steps.
-function Demo({ id, title, cue, small }) {
-  const demo = DEMOS[id]
+function Demo({ id, demo: given, title, cue, small }) {
+  const demo = given || DEMOS[id]
   const [frame, setFrame] = useState(0)
   const [open, setOpen] = useState(false)
   useEffect(() => {
@@ -356,11 +357,22 @@ function Demo({ id, title, cue, small }) {
         <ol className="list-decimal pl-5 mt-2 flex flex-col gap-1.5 text-[13.5px] text-muted">
           {demo.steps.map(s => <li key={s}>{s}</li>)}
         </ol>
-        <p className="text-[11.5px] text-faint mt-3">Images and steps from the public-domain Free Exercise DB.</p>
+        <p className="text-[11.5px] text-faint mt-3">{demo.name && demo.name !== title ? `Shown: ${demo.name}. ` : ''}Images and steps from the public-domain Free Exercise DB.</p>
       </Dialog>
     </>
   )
 }
+
+// Library entry → the shape Demo expects.
+const libDemo = x => x ? { frames: x.f, steps: x.s || [], name: x.name } : null
+
+// The 873-exercise picture library, loaded once on first use.
+function useLibrary() {
+  const [lib, setLib] = useState(null)
+  useEffect(() => { let on = true; loadLibrary().then(l => on && setLib(l)).catch(() => {}); return () => { on = false } }, [])
+  return lib
+}
+const pictureFor = (a, lib) => lib ? ((a.img && lib.byId[a.img]) || matchExercise(a.name, lib)) : null
 
 function StepList({ steps }) {
   return (
@@ -926,7 +938,7 @@ function History() {
           <button key={x.date} onClick={() => setOpenDay(x.date)} className="row row-hover w-full text-left items-start">
             <span className="w-[86px] flex-shrink-0 pt-0.5">
               <span className="block text-[13.5px] font-medium">{relDay(x.date) === 'Today' || relDay(x.date) === 'Yesterday' ? relDay(x.date) : fmtDay(x.date, { weekday: 'short', day: 'numeric' })}</span>
-              <span className="block text-[11.5px] text-faint">{fmtDay(x.date, { month: 'short', year: '2-digit' })}</span>
+              <span className="block text-[11.5px] text-faint">{fmtDay(x.date, { day: 'numeric', month: 'short' })}</span>
             </span>
             <span className="flex-1 min-w-0 flex flex-wrap gap-1.5 pt-0.5">
               {x.sessions.length === 0 && <span className="text-[13px] text-faint">No workout</span>}
@@ -1047,6 +1059,7 @@ function MiniBar({ label, value, target, color, unit }) {
 
 function SessionDetail({ s, sets, onEdit, onDelete }) {
   const custom = isCustom(s)
+  const lib = useLibrary()
   const day = DAYS[s.day_type]
   const order = day ? [...day.lifts, ...day.abs, ...(day.posture || [])] : []
   const ids = [...new Set([...order.filter(id => sets.some(x => x.exercise_id === id)), ...sets.map(x => x.exercise_id)])]
@@ -1083,17 +1096,85 @@ function SessionDetail({ s, sets, onEdit, onDelete }) {
         <div key={g} className="mt-2">
           {g && <p className="text-[11.5px] uppercase tracking-wide text-faint font-semibold">{g}</p>}
           <ul className="flex flex-col gap-0.5">
-            {list.map((a, i) => (
-              <li key={i} className="flex items-baseline gap-2 text-[13.5px]">
-                <span className="flex-1 min-w-0">{a.name}</span>
-                {a.detail && <span className="tnum text-muted text-right">{a.detail}</span>}
-              </li>
-            ))}
+            {list.map((a, i) => {
+              const pic = pictureFor(a, lib)
+              return (
+                <li key={i} className="flex items-center gap-2.5 text-[13.5px] py-0.5">
+                  {pic ? <Demo demo={libDemo(pic)} title={a.name} small /> : <span className="w-[52px] h-[52px] rounded-[10px] bg-sunken flex-shrink-0 shadow-[inset_0_0_0_1px_var(--c-line)]" aria-hidden="true" />}
+                  <span className="flex-1 min-w-0">{a.name}</span>
+                  {a.detail && <span className="tnum text-muted text-right">{a.detail}</span>}
+                </li>
+              )
+            })}
           </ul>
         </div>
       ))}
       {s.cardio_min ? <p className="text-[13px] mt-2 flex items-center gap-1.5"><Footprints size={13} style={{ color: HUE }} /> {Number(s.cardio_min)} min {s.cardio_kind || 'cardio'}{s.cardio_km ? `, ${Number(s.cardio_km)} km` : ''}</p> : null}
       {s.notes && <p className="text-[12.5px] text-muted mt-2 whitespace-pre-line">{s.notes}</p>}
+    </div>
+  )
+}
+
+// Pictures for the exercises in the form: shows the matched picture for each line,
+// lets you change it, and lets you add exercises straight from the library.
+function ExercisePictures({ lines, lib, picks, onAdd, onPick }) {
+  const [q, setQ] = useState('')
+  const [target, setTarget] = useState(null) // exercise name whose picture is being changed
+  const acts = String(lines || '').split('\n').map(parseActivity).filter(Boolean).slice(0, 60)
+  const results = useMemo(() => searchLibrary(q, lib, 30), [q, lib])
+  if (!lib) return <p className="text-[12.5px] text-faint">Loading exercise pictures…</p>
+  const choose = x => {
+    if (target) { onPick(target, x.id); setTarget(null) } else onAdd(x)
+    setQ('')
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      {acts.length > 0 && (
+        <div>
+          <span className="label">Pictures</span>
+          <ul className="flex flex-col gap-1 max-h-[220px] overflow-y-auto pr-1">
+            {acts.map((a, i) => {
+              const pic = (picks[a.name] && lib.byId[picks[a.name]]) || matchExercise(a.name, lib)
+              return (
+                <li key={i} className={`flex items-center gap-2.5 text-[13px] rounded-[10px] p-1 ${target === a.name ? 'bg-sunken' : ''}`}>
+                  {pic ? <Demo demo={libDemo(pic)} title={a.name} small /> : <span className="w-[52px] h-[52px] rounded-[10px] bg-sunken flex-shrink-0 grid place-items-center text-faint"><ImageIcon size={16} /></span>}
+                  <span className="flex-1 min-w-0">
+                    <span className="block truncate">{a.name}</span>
+                    <span className="block text-[11.5px] text-faint truncate">{pic ? pic.name : 'No picture yet'}</span>
+                  </span>
+                  <button type="button" onClick={() => { setTarget(target === a.name ? null : a.name); setQ(target === a.name ? '' : a.name) }} className="btn btn-quiet btn-sm">
+                    {target === a.name ? 'Cancel' : pic ? 'Change' : 'Find'}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+      <label>
+        <span className="label">{target ? `Picture for “${target}”` : 'Add from exercise library'}</span>
+        <span className="relative block">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search 870+ exercises: curl, lunge, chest, stretch…" className="input pl-8" />
+        </span>
+      </label>
+      {q && (
+        <ul className="flex flex-col gap-0.5 max-h-[260px] overflow-y-auto rounded-[10px] bg-sunken p-1">
+          {results.length === 0 && <li className="text-[12.5px] text-faint p-2">No match. Try a simpler word.</li>}
+          {results.map(x => (
+            <li key={x.id}>
+              <button type="button" onClick={() => choose(x)} className="w-full flex items-center gap-2.5 text-left rounded-[8px] p-1 hover:bg-[var(--c-line)]">
+                <img src={x.f[0]} alt="" loading="lazy" className="w-[44px] h-[44px] rounded-[8px] object-cover bg-white flex-shrink-0" />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[13px] truncate">{x.name}</span>
+                  <span className="block text-[11.5px] text-faint truncate">{[(x.m || []).join(', '), x.e].filter(Boolean).join(' · ')}</span>
+                </span>
+                <span className="text-[12px] text-muted flex-shrink-0">{target ? 'Use' : 'Add'}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -1104,10 +1185,13 @@ function CustomWorkoutDialog({ session, onClose, onSaved }) {
   const open = !!session
   const [f, setF] = useState({})
   const [habit, setHabit] = useState(null)
+  const [picks, setPicks] = useState({}) // exercise name → library id chosen by hand
+  const lib = useLibrary()
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
   useEffect(() => {
     if (!open) return
     const s = session || {}
+    setPicks(Object.fromEntries((s.activities || []).filter(a => a.img).map(a => [a.name, a.img])))
     setF({
       date: s.date || today(), title: s.title || '',
       lines: (s.activities || []).map(a => a.detail ? `${a.name} — ${a.detail}` : a.name).join('\n'),
@@ -1120,6 +1204,7 @@ function CustomWorkoutDialog({ session, onClose, onSaved }) {
   async function save(e) {
     e.preventDefault()
     const activities = String(f.lines || '').split('\n').map(parseActivity).filter(Boolean).slice(0, 60)
+      .map(a => { const img = picks[a.name] || pictureFor(a, lib)?.id; return img ? { ...a, img } : a })
     const title = (f.title || '').trim() || 'Other workout'
     if (!activities.length && !Number(f.cardio_min)) return toast('Add at least one exercise or some cardio minutes.', 'error')
     const row = {
@@ -1152,6 +1237,9 @@ function CustomWorkoutDialog({ session, onClose, onSaved }) {
             placeholder={'Bicycle — 10 min\nSumo squats — 2 × 15\nWalking lunges — 2 × 15\nCat-cow\nCrunches — 2 × 15'} />
           <span className="text-[12px] text-faint">Put sets, reps or time after a dash: “Sumo squats — 2 × 15”.</span>
         </label>
+        <ExercisePictures lines={f.lines} lib={lib} picks={picks}
+          onAdd={x => set('lines', (String(f.lines || '').replace(/\s+$/, '') ? String(f.lines).replace(/\s+$/, '') + '\n' : '') + x.name)}
+          onPick={(name, id) => setPicks(p => ({ ...p, [name]: id }))} />
         <div className="grid grid-cols-2 gap-2">
           <label><span className="label">Cardio minutes</span><input type="number" inputMode="decimal" min="0" value={f.cardio_min || ''} onChange={e => set('cardio_min', e.target.value)} className="input tnum" placeholder="optional" /></label>
           <label><span className="label">Cardio type</span>
